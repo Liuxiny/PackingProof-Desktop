@@ -59,60 +59,64 @@ namespace ExpressPackingMonitoring
                 return;
             }
 
-            bool forceChoose = e.Args.Any(a => string.Equals(a, "--choose-workstation", StringComparison.OrdinalIgnoreCase));
-            string temporaryRole = ResolveRoleOption(e.Args, "--temporary-role");
-            bool useTemporaryRole = WorkstationRoles.IsKnown(temporaryRole);
-            string requestedRole = ResolveRoleOption(e.Args, "--role");
-            if (string.IsNullOrWhiteSpace(requestedRole))
-                requestedRole = ResolveLegacyRequestedRole(e.Args);
-
-            if (forceChoose && !useTemporaryRole)
-                config.WorkstationRole = "";
-            if (!useTemporaryRole && !string.IsNullOrWhiteSpace(requestedRole))
+            if (!WorkstationInstanceCoordinator.TryCreate(out _instanceCoordinator))
             {
-                if (!TrySaveStartupRole(config, requestedRole))
-                    return;
-            }
-
-            string startupRole = useTemporaryRole ? temporaryRole : config.WorkstationRole;
-            if (!useTemporaryRole && !WorkstationRoles.IsKnown(startupRole))
-            {
-                var selector = new WorkstationSelectionWindow();
-                if (selector.ShowDialog() != true || string.IsNullOrWhiteSpace(selector.SelectedRole))
-                {
-                    RuntimeLog.RecordShutdownRequest("WorkstationSelectionCancelled");
-                    Shutdown(0);
-                    return;
-                }
-
-                if (!TrySaveStartupRole(config, selector.SelectedRole))
-                    return;
-                if (WorkstationNetwork.TryRestartApplication("startup-workstation-selection"))
-                    return;
-
-                startupRole = config.WorkstationRole;
-            }
-
-            if (!WorkstationRoles.IsKnown(startupRole))
-            {
-                RuntimeLog.RecordShutdownRequest("InvalidWorkstationRole", startupRole);
+                WorkstationInstanceCoordinator.RequestActivate();
+                RuntimeLog.RecordShutdownRequest("DuplicateInstanceActivated");
                 Shutdown(0);
                 return;
             }
 
-            if (!PrepareWorkstationInstance(ref startupRole, out _instanceCoordinator))
+            bool forceChoose = e.Args.Any(a =>
+                string.Equals(a, "--choose-workstation", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(a, "--choose-deployment", StringComparison.OrdinalIgnoreCase));
+            string requestedPreset = ResolvePresetOption(e.Args, "--preset");
+            if (requestedPreset.Length == 0)
+                requestedPreset = ResolvePresetOption(e.Args, "--role");
+            if (requestedPreset.Length == 0)
+                requestedPreset = ResolveLegacyRequestedPreset(e.Args);
+
+            if (forceChoose)
+                config.DeploymentPreset = "";
+            if (requestedPreset.Length > 0 && !TrySaveStartupPreset(config, requestedPreset))
                 return;
 
-            AutoStartService.Apply(config.AutoStartOnBoot);
-            MainViewModel.AllowLanAccessSetupOnStartup = !useTemporaryRole;
+            string startupPreset = config.DeploymentPreset;
+            if (!DeploymentPresets.IsKnown(startupPreset))
+            {
+                var selector = new WorkstationSelectionWindow();
+                if (selector.ShowDialog() != true || string.IsNullOrWhiteSpace(selector.SelectedPreset))
+                {
+                    RuntimeLog.RecordShutdownRequest("DeploymentSelectionCancelled");
+                    Shutdown(0);
+                    return;
+                }
 
-            Window window = string.Equals(startupRole, WorkstationRoles.PrintStation, StringComparison.OrdinalIgnoreCase)
-                ? new PrintWorkstationWindow(
+                if (!TrySaveStartupPreset(config, selector.SelectedPreset))
+                    return;
+                startupPreset = config.DeploymentPreset;
+            }
+
+            if (!DeploymentPresets.IsKnown(startupPreset))
+            {
+                RuntimeLog.RecordShutdownRequest("InvalidDeploymentPreset", startupPreset);
+                Shutdown(0);
+                return;
+            }
+
+            AutoStartService.Apply(config.AutoStartOnBoot);
+            MainViewModel.AllowLanAccessSetupOnStartup = true;
+
+            Window window = DeploymentPresets.Normalize(startupPreset) switch
+            {
+                DeploymentPresets.ViewerClient => new ViewerClientWindow(config),
+                DeploymentPresets.MobileBackupHost => new PrintWorkstationWindow(
                     config,
-                    openPlaybackOnStartup: !useTemporaryRole,
-                    requestLanAccessOnStartup: !useTemporaryRole,
-                    enableCloseBehaviorPrompt: !useTemporaryRole)
-                : new MainWindow(enableCloseBehaviorPrompt: !useTemporaryRole);
+                    openPlaybackOnStartup: true,
+                    requestLanAccessOnStartup: true,
+                    enableCloseBehaviorPrompt: true),
+                _ => new MainWindow(enableCloseBehaviorPrompt: true)
+            };
             window.SourceInitialized += (_, _) =>
             {
                 if (PresentationSource.FromVisual(window) is HwndSource source)
@@ -124,13 +128,30 @@ namespace ExpressPackingMonitoring
             ShutdownMode = ShutdownMode.OnMainWindowClose;
         }
 
-        private bool TrySaveStartupRole(AppConfig config, string role)
+        private bool TrySaveStartupPreset(AppConfig config, string preset)
         {
             if (WorkstationConfigStore.TryUpdate(
-                    current => current.WorkstationRole = role,
+                    current =>
+                    {
+                        current.DeploymentPreset = preset;
+                        current.DeploymentSchemaVersion = DeploymentPresets.CurrentSchemaVersion;
+                        current.EnableWebServer = !string.Equals(
+                            preset,
+                            DeploymentPresets.ViewerClient,
+                            StringComparison.Ordinal);
+                        current.WorkstationRole = preset switch
+                        {
+                            DeploymentPresets.RecordingHost => WorkstationRoles.CameraMonitor,
+                            DeploymentPresets.MobileBackupHost => WorkstationRoles.PrintStation,
+                            _ => ""
+                        };
+                    },
                     out AppConfig savedConfig,
                     out string error))
             {
+                config.DeploymentPreset = savedConfig.DeploymentPreset;
+                config.DeploymentSchemaVersion = savedConfig.DeploymentSchemaVersion;
+                config.EnableWebServer = savedConfig.EnableWebServer;
                 config.WorkstationRole = savedConfig.WorkstationRole;
                 return true;
             }
@@ -166,82 +187,50 @@ namespace ExpressPackingMonitoring
             base.OnSessionEnding(e);
         }
 
-        private bool PrepareWorkstationInstance(ref string startupRole, out WorkstationInstanceCoordinator? coordinator)
-        {
-            if (WorkstationInstanceCoordinator.TryCreate(startupRole, out coordinator))
-                return true;
-
-            string otherRole = WorkstationRoles.GetOtherRole(startupRole);
-            bool canOpenOtherRole = !WorkstationInstanceCoordinator.IsRoleRunning(otherRole);
-            RuntimeLog.Warn("Instance", $"Duplicate startup requested role={startupRole}, canOpenOtherRole={canOpenOtherRole}");
-
-            var dialog = new DuplicateInstanceDialog(startupRole, otherRole, canOpenOtherRole);
-            dialog.ShowDialog();
-
-            if (dialog.Choice == DuplicateInstanceChoice.OpenOtherRole)
-            {
-                startupRole = otherRole;
-                if (WorkstationInstanceCoordinator.TryCreate(startupRole, out coordinator))
-                {
-                    RuntimeLog.Info("Instance", $"Temporary role startup role={startupRole}");
-                    return true;
-                }
-
-                WorkstationInstanceCoordinator.RequestActivate(startupRole);
-                RuntimeLog.RecordShutdownRequest("TemporaryRoleUnavailable", startupRole);
-                Shutdown(0);
-                return false;
-            }
-
-            if (dialog.Choice == DuplicateInstanceChoice.ActivateExisting)
-            {
-                WorkstationInstanceCoordinator.RequestActivate(startupRole);
-                RuntimeLog.RecordShutdownRequest("DuplicateInstanceActivated", startupRole);
-            }
-            else
-            {
-                RuntimeLog.RecordShutdownRequest("DuplicateInstanceCancelled", startupRole);
-            }
-
-            Shutdown(0);
-            return false;
-        }
-
-        private static string ResolveLegacyRequestedRole(string[] args)
+        internal static string ResolveLegacyRequestedPreset(string[] args)
         {
             if (args.Any(a => string.Equals(a, "--monitor", StringComparison.OrdinalIgnoreCase)))
-                return WorkstationRoles.CameraMonitor;
+                return DeploymentPresets.RecordingHost;
             if (args.Any(a => string.Equals(a, "--order-workstation", StringComparison.OrdinalIgnoreCase) ||
                               string.Equals(a, "--print-station", StringComparison.OrdinalIgnoreCase)))
-                return WorkstationRoles.PrintStation;
+                return DeploymentPresets.MobileBackupHost;
+            if (args.Any(a => string.Equals(a, "--viewer", StringComparison.OrdinalIgnoreCase)
+                              || string.Equals(a, "--viewer-client", StringComparison.OrdinalIgnoreCase)))
+                return DeploymentPresets.ViewerClient;
             return "";
         }
 
-        private static string ResolveRoleOption(string[] args, string optionName)
+        internal static string ResolvePresetOption(string[] args, string optionName)
         {
             for (int i = 0; i < args.Length; i++)
             {
                 string arg = args[i] ?? "";
                 if (arg.StartsWith(optionName + "=", StringComparison.OrdinalIgnoreCase))
-                    return NormalizeRoleName(arg[(optionName.Length + 1)..]);
+                    return NormalizePresetName(arg[(optionName.Length + 1)..]);
                 if (string.Equals(arg, optionName, StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
-                    return NormalizeRoleName(args[i + 1]);
+                    return NormalizePresetName(args[i + 1]);
             }
 
             return "";
         }
 
-        private static string NormalizeRoleName(string? role)
+        internal static string NormalizePresetName(string? role)
         {
-            if (string.Equals(role, WorkstationRoles.CameraMonitor, StringComparison.OrdinalIgnoreCase) ||
+            if (string.Equals(role, DeploymentPresets.RecordingHost, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(role, WorkstationRoles.CameraMonitor, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(role, "monitor", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(role, "camera", StringComparison.OrdinalIgnoreCase))
-                return WorkstationRoles.CameraMonitor;
-            if (string.Equals(role, WorkstationRoles.PrintStation, StringComparison.OrdinalIgnoreCase) ||
+                return DeploymentPresets.RecordingHost;
+            if (string.Equals(role, DeploymentPresets.MobileBackupHost, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(role, WorkstationRoles.PrintStation, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(role, "print", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(role, "printer", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(role, "order", StringComparison.OrdinalIgnoreCase))
-                return WorkstationRoles.PrintStation;
+                return DeploymentPresets.MobileBackupHost;
+            if (string.Equals(role, DeploymentPresets.ViewerClient, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(role, "viewer", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(role, "client", StringComparison.OrdinalIgnoreCase))
+                return DeploymentPresets.ViewerClient;
             return "";
         }
 

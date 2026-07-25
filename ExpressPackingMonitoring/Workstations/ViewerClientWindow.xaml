@@ -1,0 +1,128 @@
+<Window x:Class="ExpressPackingMonitoring.ViewerClientWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="PackingProof 查看客户端"
+        Width="900"
+        Height="680"
+        MinWidth="760"
+        MinHeight="560"
+        WindowStartupLocation="CenterScreen"
+        Icon="/app.ico"
+        Background="{DynamicResource WindowBackground}"
+        FontFamily="Microsoft YaHei UI, Segoe UI">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <Grid Margin="28">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <StackPanel>
+                <TextBlock Text="查看客户端" FontSize="28" FontWeight="Black"
+                           Foreground="{DynamicResource TextPrimary}"/>
+                <TextBlock Text="连接局域网中的 PackingProof 主机，不在本机录制或保存录像"
+                           Margin="0,6,0,0"
+                           Foreground="{DynamicResource TextSecondary}"/>
+            </StackPanel>
+
+            <Border Grid.Row="1"
+                    Margin="0,22,0,0"
+                    Padding="20"
+                    CornerRadius="10"
+                    Background="{DynamicResource PanelBackground}"
+                    BorderBrush="{DynamicResource BorderDefault}"
+                    BorderThickness="1">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="150"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="当前绑定主机" Foreground="{DynamicResource TextSecondary}"/>
+                    <TextBlock x:Name="HostNameText" Grid.Column="1" Text="尚未绑定"
+                               FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}"/>
+                    <TextBlock Grid.Row="1" Text="主机地址" Margin="0,12,0,0"
+                               Foreground="{DynamicResource TextSecondary}"/>
+                    <TextBlock x:Name="HostAddressText" Grid.Row="1" Grid.Column="1" Margin="0,12,0,0"
+                               Text="—" Foreground="{DynamicResource TextPrimary}"/>
+                    <TextBlock Grid.Row="2" Text="在线状态" Margin="0,12,0,0"
+                               Foreground="{DynamicResource TextSecondary}"/>
+                    <TextBlock x:Name="OnlineStatusText" Grid.Row="2" Grid.Column="1" Margin="0,12,0,0"
+                               Text="尚未检查" Foreground="{DynamicResource TextSecondary}"/>
+                    <TextBlock Grid.Row="3" Text="主机能力" Margin="0,12,0,0"
+                               Foreground="{DynamicResource TextSecondary}"/>
+                    <TextBlock x:Name="CapabilitiesText" Grid.Row="3" Grid.Column="1" Margin="0,12,0,0"
+                               Text="—" TextWrapping="Wrap" Foreground="{DynamicResource TextPrimary}"/>
+                    <TextBlock Grid.Row="4" Text="录像设备数量" Margin="0,12,0,0"
+                               Foreground="{DynamicResource TextSecondary}"/>
+                    <TextBlock x:Name="RecorderCountText" Grid.Row="4" Grid.Column="1" Margin="0,12,0,0"
+                               Text="0" Foreground="{DynamicResource TextPrimary}"/>
+                </Grid>
+            </Border>
+
+            <WrapPanel Grid.Row="2" Margin="0,16,0,0">
+                <Button x:Name="OpenWebButton" Content="打开录像网页" Style="{DynamicResource PrimaryButtonStyle}"
+                        Margin="0,0,10,10" Click="OpenWeb_Click"/>
+                <Button Content="重新搜索主机" Style="{DynamicResource SecondaryButtonStyle}"
+                        Margin="0,0,10,10" Click="SearchHosts_Click"/>
+                <Button Content="更换主机" Style="{DynamicResource SecondaryButtonStyle}"
+                        Margin="0,0,10,10" Click="ChangeHost_Click"/>
+                <Button Content="安装快递助手联动" Style="{DynamicResource SecondaryButtonStyle}"
+                        Margin="0,0,10,10" Click="InstallUserscript_Click"/>
+                <Button Content="重新生成快递助手脚本" Style="{DynamicResource SecondaryButtonStyle}"
+                        Margin="0,0,10,10" Click="InstallUserscript_Click"/>
+            </WrapPanel>
+
+            <Border x:Name="DiscoveryPanel"
+                    Grid.Row="3"
+                    Margin="0,8,0,0"
+                    Padding="20"
+                    CornerRadius="10"
+                    Background="{DynamicResource PanelBackground}"
+                    BorderBrush="{DynamicResource BorderDefault}"
+                    BorderThickness="1">
+                <StackPanel>
+                    <TextBlock Text="搜索并选择主机" FontSize="18" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimary}"/>
+                    <TextBlock x:Name="SearchStatusText" Text="可以搜索局域网，也可以手动输入主机地址"
+                               Margin="0,6,0,12" Foreground="{DynamicResource TextSecondary}"/>
+                    <ListBox x:Name="HostsList" MinHeight="120" MaxHeight="220"
+                             MouseDoubleClick="HostsList_MouseDoubleClick">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="220"/>
+                                        <ColumnDefinition Width="180"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding NodeName}" FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Address}"/>
+                                    <TextBlock Grid.Column="2" Text="{Binding Preset}"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <WrapPanel Margin="0,12,0,0">
+                        <Button x:Name="BindSelectedButton" Content="绑定所选主机"
+                                Style="{DynamicResource PrimaryButtonStyle}"
+                                Margin="0,0,10,10" Click="BindSelected_Click"/>
+                        <TextBox x:Name="ManualAddressTextBox" Width="260" Height="34"
+                                 Margin="0,0,10,10" VerticalContentAlignment="Center"
+                                 ToolTip="例如 192.168.1.20:5280"/>
+                        <Button Content="连接手动地址" Style="{DynamicResource SecondaryButtonStyle}"
+                                Margin="0,0,10,10" Click="BindManual_Click"/>
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </ScrollViewer>
+</Window>

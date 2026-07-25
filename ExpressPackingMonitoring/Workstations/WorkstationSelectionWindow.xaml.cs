@@ -4,22 +4,28 @@ namespace ExpressPackingMonitoring;
 
 public partial class WorkstationSelectionWindow : Window
 {
-    public string? SelectedRole { get; private set; }
+    public string? SelectedPreset { get; private set; }
 
     public WorkstationSelectionWindow()
     {
         InitializeComponent();
     }
 
-    private void CameraMonitor_Click(object sender, RoutedEventArgs e)
+    private void RecordingHost_Click(object sender, RoutedEventArgs e)
     {
-        SelectedRole = WorkstationRoles.CameraMonitor;
+        SelectedPreset = Config.DeploymentPresets.RecordingHost;
         DialogResult = true;
     }
 
-    private void PrintStation_Click(object sender, RoutedEventArgs e)
+    private void ViewerClient_Click(object sender, RoutedEventArgs e)
     {
-        SelectedRole = WorkstationRoles.PrintStation;
+        SelectedPreset = Config.DeploymentPresets.ViewerClient;
+        DialogResult = true;
+    }
+
+    private void MobileBackupHost_Click(object sender, RoutedEventArgs e)
+    {
+        SelectedPreset = Config.DeploymentPresets.MobileBackupHost;
         DialogResult = true;
     }
 }

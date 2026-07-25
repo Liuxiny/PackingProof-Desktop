@@ -12,42 +12,36 @@ namespace ExpressPackingMonitoring;
 public sealed class WorkstationInstanceCoordinator : IDisposable
 {
     private const string NamePrefix = "ExpressPackingMonitoring";
-    private readonly string _role;
     private readonly Mutex _mutex;
     private readonly CancellationTokenSource _cts = new();
     private Task? _listenTask;
     private Window? _window;
     private bool _disposed;
 
-    private WorkstationInstanceCoordinator(string role, Mutex mutex)
+    private WorkstationInstanceCoordinator(Mutex mutex)
     {
-        _role = role;
         _mutex = mutex;
     }
 
-    public static bool TryCreate(string role, out WorkstationInstanceCoordinator? coordinator)
+    public static bool TryCreate(out WorkstationInstanceCoordinator? coordinator)
     {
         coordinator = null;
-        if (!WorkstationRoles.IsKnown(role)) return false;
-
-        var mutex = new Mutex(initiallyOwned: true, GetMutexName(role), out bool createdNew);
+        var mutex = new Mutex(initiallyOwned: true, GetMutexName(), out bool createdNew);
         if (!createdNew)
         {
             mutex.Dispose();
             return false;
         }
 
-        coordinator = new WorkstationInstanceCoordinator(role, mutex);
+        coordinator = new WorkstationInstanceCoordinator(mutex);
         return true;
     }
 
-    public static bool IsRoleRunning(string role)
+    public static bool IsRunning()
     {
-        if (!WorkstationRoles.IsKnown(role)) return false;
-
         try
         {
-            using var existing = Mutex.OpenExisting(GetMutexName(role));
+            using var existing = Mutex.OpenExisting(GetMutexName());
             return true;
         }
         catch (WaitHandleCannotBeOpenedException)
@@ -60,13 +54,11 @@ public sealed class WorkstationInstanceCoordinator : IDisposable
         }
     }
 
-    public static bool RequestActivate(string role)
+    public static bool RequestActivate()
     {
-        if (!WorkstationRoles.IsKnown(role)) return false;
-
         try
         {
-            using var pipe = new NamedPipeClientStream(".", GetPipeName(role), PipeDirection.Out);
+            using var pipe = new NamedPipeClientStream(".", GetPipeName(), PipeDirection.Out);
             pipe.Connect(400);
             using var writer = new StreamWriter(pipe) { AutoFlush = true };
             writer.WriteLine("activate");
@@ -92,7 +84,7 @@ public sealed class WorkstationInstanceCoordinator : IDisposable
             try
             {
                 await using var pipe = new NamedPipeServerStream(
-                    GetPipeName(_role),
+                    GetPipeName(),
                     PipeDirection.In,
                     maxNumberOfServerInstances: 1,
                     PipeTransmissionMode.Byte,
@@ -111,7 +103,7 @@ public sealed class WorkstationInstanceCoordinator : IDisposable
             }
             catch (Exception ex)
             {
-                RuntimeLog.Warn("Instance", $"Activation listener error role={_role}, error={ex.Message}");
+                RuntimeLog.Warn("Instance", $"Activation listener error: {ex.Message}");
                 await Task.Delay(300, _cts.Token).ContinueWith(_ => { });
             }
         }
@@ -136,7 +128,7 @@ public sealed class WorkstationInstanceCoordinator : IDisposable
             }
             catch (Exception ex)
             {
-                RuntimeLog.Warn("Instance", $"Activate window failed role={_role}, error={ex.Message}");
+                RuntimeLog.Warn("Instance", $"Activate window failed: {ex.Message}");
             }
         }), DispatcherPriority.Normal);
     }
@@ -152,18 +144,14 @@ public sealed class WorkstationInstanceCoordinator : IDisposable
         try { _cts.Dispose(); } catch { }
     }
 
-    private static string GetMutexName(string role) => $@"Local\{GetScopedNamePrefix()}.{NormalizeRole(role)}.Mutex";
-    private static string GetPipeName(string role) => $"{GetScopedNamePrefix()}.{NormalizeRole(role)}.Activate";
+    private static string GetMutexName() => $@"Local\{GetScopedNamePrefix()}.Mutex";
+    private static string GetPipeName() => $"{GetScopedNamePrefix()}.Activate";
     private static string GetScopedNamePrefix()
     {
         string scope = Environment.GetEnvironmentVariable("EPM_INSTANCE_SCOPE") ?? "";
         string normalizedScope = new(scope.Where(char.IsLetterOrDigit).Take(48).ToArray());
         return string.IsNullOrEmpty(normalizedScope) ? NamePrefix : $"{NamePrefix}.{normalizedScope}";
     }
-    private static string NormalizeRole(string role) =>
-        string.Equals(role, WorkstationRoles.PrintStation, StringComparison.OrdinalIgnoreCase)
-            ? WorkstationRoles.PrintStation
-            : WorkstationRoles.CameraMonitor;
 }
 
 public enum DuplicateInstanceChoice

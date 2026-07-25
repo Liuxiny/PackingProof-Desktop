@@ -23,7 +23,6 @@ public partial class PrintWorkstationWindow : Window
     private readonly bool _requestLanAccessOnStartup;
     private readonly NoCameraWorkstationHost _host;
     private readonly CancellationTokenSource _lifetimeCts = new();
-    private readonly string _activeWorkstationRole = WorkstationRoles.PrintStation;
     private readonly WindowCloseBehaviorController _closeBehaviorController;
     private StatisticsWindow? _statisticsWindow;
     private PlaybackWindow? _playbackWindow;
@@ -284,7 +283,10 @@ public partial class PrintWorkstationWindow : Window
         AppConfig previousConfig = _config;
         AppConfig.NormalizeAfterLoad(nextConfig);
 
-        if (!string.Equals(previousConfig.WorkstationRole, nextConfig.WorkstationRole, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(
+                previousConfig.DeploymentPreset,
+                nextConfig.DeploymentPreset,
+                StringComparison.OrdinalIgnoreCase))
         {
             if (!TrySaveAndActivateConfig(previousConfig, nextConfig, out string error))
             {
@@ -410,17 +412,26 @@ public partial class PrintWorkstationWindow : Window
     private void SwitchWorkstation_Click(object sender, RoutedEventArgs e)
     {
         var window = new WorkstationSelectionWindow { Owner = this };
-        if (window.ShowDialog() != true || string.IsNullOrWhiteSpace(window.SelectedRole))
+        if (window.ShowDialog() != true || string.IsNullOrWhiteSpace(window.SelectedPreset))
             return;
 
-        if (string.Equals(_activeWorkstationRole, window.SelectedRole, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(
+                DeploymentPresets.MobileBackupHost,
+                window.SelectedPreset,
+                StringComparison.OrdinalIgnoreCase))
         {
-            SetStatus("当前已选择不使用电脑摄像头", "无需重启或更改", StatusVisual.Success);
+            SetStatus("当前已选择接收手机录像", "无需重启或更改", StatusVisual.Success);
             return;
         }
 
         if (!WorkstationConfigStore.TryUpdate(
-                config => config.WorkstationRole = window.SelectedRole,
+                config =>
+                {
+                    config.DeploymentPreset = window.SelectedPreset;
+                    config.WorkstationRole = window.SelectedPreset == DeploymentPresets.RecordingHost
+                        ? WorkstationRoles.CameraMonitor
+                        : "";
+                },
                 out AppConfig savedConfig,
                 out string error))
         {
@@ -428,6 +439,7 @@ public partial class PrintWorkstationWindow : Window
             return;
         }
 
+        _config.DeploymentPreset = savedConfig.DeploymentPreset;
         _config.WorkstationRole = savedConfig.WorkstationRole;
         WorkstationNetwork.AskRestart(this);
     }

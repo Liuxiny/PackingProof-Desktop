@@ -33,6 +33,9 @@ public sealed class PackingProofNodeInfo
     public string Address { get; set; } = "";
 
     [JsonIgnore]
+    public string CapabilitySummary => string.Join("、", Capabilities);
+
+    [JsonIgnore]
     public bool IsValidHost =>
         string.Equals(Protocol, ExpectedProtocol, StringComparison.Ordinal)
         && ProtocolVersion == SupportedProtocolVersion

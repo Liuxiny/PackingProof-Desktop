@@ -306,6 +306,43 @@ public static class WorkstationNetwork
         }
     }
 
+    public static async Task<IReadOnlyList<RecordingDeviceInfo>> GetRecordingDevicesAsync(
+        string address,
+        CancellationToken token = default)
+    {
+        address = NormalizeAddress(address);
+        if (address.Length == 0)
+            return Array.Empty<RecordingDeviceInfo>();
+
+        try
+        {
+            using var response = await Client.GetAsync($"{ToUrl(address)}/api/recording-devices", token);
+            if (!response.IsSuccessStatusCode)
+                return Array.Empty<RecordingDeviceInfo>();
+
+            await using Stream stream = await response.Content.ReadAsStreamAsync(token);
+            RecordingDevicesResponse? payload = await JsonSerializer.DeserializeAsync<RecordingDevicesResponse>(
+                stream,
+                NetworkJsonOptions,
+                token);
+            return payload?.Devices?
+                .Where(device => device != null)
+                .ToArray() ?? Array.Empty<RecordingDeviceInfo>();
+        }
+        catch (Exception ex) when (ex is HttpRequestException
+            or TaskCanceledException
+            or JsonException
+            or InvalidOperationException)
+        {
+            return Array.Empty<RecordingDeviceInfo>();
+        }
+    }
+
+    private sealed class RecordingDevicesResponse
+    {
+        public List<RecordingDeviceInfo> Devices { get; set; } = [];
+    }
+
     public static async Task<bool> SendConnectionHeartbeatAsync(
         string address,
         string clientId,

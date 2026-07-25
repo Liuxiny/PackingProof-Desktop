@@ -55,8 +55,7 @@ internal static class UninstallCleanupService
         string databasePath = Path.Combine(userDataDirectory, "videos.db");
         try
         {
-            if (WorkstationInstanceCoordinator.IsRoleRunning(WorkstationRoles.CameraMonitor) ||
-                WorkstationInstanceCoordinator.IsRoleRunning(WorkstationRoles.PrintStation))
+            if (WorkstationInstanceCoordinator.IsRunning())
             {
                 throw new InvalidOperationException("快递打包监控仍在运行，请关闭所有程序窗口后重试");
             }

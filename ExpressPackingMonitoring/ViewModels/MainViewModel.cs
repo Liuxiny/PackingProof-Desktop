@@ -1743,7 +1743,10 @@ namespace ExpressPackingMonitoring.ViewModels
                     bool themeChanged = Config.Theme != nextConfig.Theme;
                     bool globalKeyChanged = Config.EnableGlobalKeyboard != nextConfig.EnableGlobalKeyboard;
                     bool cameraBarcodeChanged = Config.EnableCameraBarcodeRecognition != nextConfig.EnableCameraBarcodeRecognition;
-                    bool workstationChanged = !string.Equals(_activeWorkstationRole, nextConfig.WorkstationRole, StringComparison.OrdinalIgnoreCase);
+                    bool workstationChanged = !string.Equals(
+                        DeploymentPresets.RecordingHost,
+                        nextConfig.DeploymentPreset,
+                        StringComparison.OrdinalIgnoreCase);
                     bool aiTtsChanged = Config.EnableAiTts != nextConfig.EnableAiTts
                         || Config.AiTtsEngine != nextConfig.AiTtsEngine;
                     bool webServerChanged = Config.EnableWebServer != nextConfig.EnableWebServer
@@ -2675,28 +2678,42 @@ namespace ExpressPackingMonitoring.ViewModels
         public void SwitchWorkstation()
         {
             var selector = new WorkstationSelectionWindow { Owner = Application.Current?.MainWindow };
-            if (selector.ShowDialog() == true && !string.IsNullOrWhiteSpace(selector.SelectedRole))
+            if (selector.ShowDialog() == true && !string.IsNullOrWhiteSpace(selector.SelectedPreset))
             {
-                if (string.Equals(_activeWorkstationRole, selector.SelectedRole, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(
+                        DeploymentPresets.RecordingHost,
+                        selector.SelectedPreset,
+                        StringComparison.OrdinalIgnoreCase))
                 {
-                    if (!string.Equals(Config.WorkstationRole, _activeWorkstationRole, StringComparison.OrdinalIgnoreCase))
+                    if (!string.Equals(
+                            Config.DeploymentPreset,
+                            DeploymentPresets.RecordingHost,
+                            StringComparison.OrdinalIgnoreCase))
                     {
+                        string previousCurrentPreset = Config.DeploymentPreset;
                         string currentRoleBeforeSave = Config.WorkstationRole;
+                        Config.DeploymentPreset = DeploymentPresets.RecordingHost;
                         Config.WorkstationRole = _activeWorkstationRole;
                         if (!SaveConfig(notifyUser: true))
                         {
+                            Config.DeploymentPreset = previousCurrentPreset;
                             Config.WorkstationRole = currentRoleBeforeSave;
                             return;
                         }
                     }
-                    ShowToast($"当前已经是{WorkstationRoles.GetDisplayName(_activeWorkstationRole)}");
+                    ShowToast($"当前已经是{DeploymentPresets.GetDisplayName(DeploymentPresets.RecordingHost)}");
                     return;
                 }
 
+                string previousPreset = Config.DeploymentPreset;
                 string previousRole = Config.WorkstationRole;
-                Config.WorkstationRole = selector.SelectedRole;
+                Config.DeploymentPreset = selector.SelectedPreset;
+                Config.WorkstationRole = selector.SelectedPreset == DeploymentPresets.MobileBackupHost
+                    ? WorkstationRoles.PrintStation
+                    : "";
                 if (!SaveConfig(notifyUser: true))
                 {
+                    Config.DeploymentPreset = previousPreset;
                     Config.WorkstationRole = previousRole;
                     return;
                 }
