@@ -253,10 +253,13 @@ namespace ExpressPackingMonitoring.UI
                             Mode = record.Mode,
                             Duration = record.DurationSeconds > 0 ? $"{(int)record.DurationSeconds}s" : "",
                             FileSize = (deleted || missing) ? FormatFileSize(record.FileSizeBytes) : FormatFileSize(info!.Length),
-                            StopReason = record.StopReason,
+                            StopReason = GetStopReasonDisplay(record.SourceType, record.StopReason),
                             VideoCodec = record.VideoCodec,
                             VideoEncoder = record.VideoEncoder,
-                            SourceDisplay = GetSourceDisplay(record.SourceType),
+                            SourceDisplay = GetSourceDisplay(
+                                record.SourceType,
+                                record.SourceDeviceId,
+                                record.SourceDeviceName),
                             IsMissing = missing,
                             IsDeleted = deleted,
                             DeleteReason = record.DeleteReason,
@@ -333,10 +336,44 @@ namespace ExpressPackingMonitoring.UI
             return string.IsNullOrWhiteSpace(parsedOrderId) ? "未识别面单" : parsedOrderId;
         }
 
-        internal static string GetSourceDisplay(string? sourceType) =>
-            string.Equals(sourceType, "external", StringComparison.OrdinalIgnoreCase)
-                ? "来源：APP备份"
-                : "来源：本机";
+        internal static string GetSourceDisplay(
+            string? sourceType,
+            string? sourceDeviceId,
+            string? sourceDeviceName)
+        {
+            if (!string.Equals(sourceType, "external", StringComparison.OrdinalIgnoreCase))
+                return "来源：本机";
+
+            return $"来源：{GetSourceDeviceDisplayName(sourceDeviceId, sourceDeviceName)}";
+        }
+
+        internal static string GetSourceDeviceDisplayName(string? sourceDeviceId, string? sourceDeviceName)
+        {
+            string normalizedId = new((sourceDeviceId ?? "")
+                .Where(char.IsLetterOrDigit)
+                .Select(char.ToUpperInvariant)
+                .ToArray());
+            if (normalizedId.Length > 0)
+            {
+                string suffix = normalizedId.Length <= 6 ? normalizedId : normalizedId[^6..];
+                return $"设备 {suffix}";
+            }
+
+            string storedName = sourceDeviceName?.Trim() ?? "";
+            return storedName.Length == 0 ? "手机设备" : storedName;
+        }
+
+        internal static string GetStopReasonDisplay(string? sourceType, string? stopReason)
+        {
+            string value = stopReason?.Trim() ?? "";
+            if (string.Equals(sourceType, "external", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(value.Replace(" ", ""), "APP备份", StringComparison.OrdinalIgnoreCase))
+            {
+                return "";
+            }
+
+            return value;
+        }
 
         private IEnumerable<FileInfo> EnumerateVideoFiles(string folderPath)
         {

@@ -87,7 +87,8 @@ public sealed class WebRequestLimitTests
         Assert.Contains("thumb.loading='lazy'", html);
         Assert.Contains("v.thumbnailUrl", html);
         Assert.Contains("status.className='status-badge'+(external?' external':'')", html);
-        Assert.Contains("?'其他设备':'PC'", html);
+        Assert.Contains("status.textContent=external?sourceDeviceDisplayName(v):'本机'", html);
+        Assert.Contains("return '设备 '+id.slice(-6)", html);
         Assert.Contains("tagLine.className='tag-line'", html);
         Assert.Contains("grid-template-columns:minmax(320px,1.7fr) minmax(300px,1.4fr) auto", html);
         Assert.Contains(".topbar{display:flex;align-items:center;", html);

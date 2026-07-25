@@ -50,12 +50,32 @@ public sealed class PlaybackWindowTests
     }
 
     [Theory]
-    [InlineData("external", "来源：APP备份")]
-    [InlineData("EXTERNAL", "来源：APP备份")]
-    [InlineData("pc", "来源：本机")]
-    [InlineData("", "来源：本机")]
-    public void GetSourceDisplay_HidesBackupDeviceIdentity(string sourceType, string expected)
+    [InlineData("external", "android-1234567890a1b2c3", "旧手机型号", "来源：设备 A1B2C3")]
+    [InlineData("EXTERNAL", "", "", "来源：手机设备")]
+    [InlineData("external", "", "一号打包手机", "来源：一号打包手机")]
+    [InlineData("pc", "pc-1", "一号电脑", "来源：本机")]
+    [InlineData("", "", "", "来源：本机")]
+    public void GetSourceDisplay_UsesBackupDeviceIdentity(
+        string sourceType,
+        string sourceDeviceId,
+        string sourceDeviceName,
+        string expected)
     {
-        Assert.Equal(expected, PlaybackWindow.GetSourceDisplay(sourceType));
+        Assert.Equal(
+            expected,
+            PlaybackWindow.GetSourceDisplay(sourceType, sourceDeviceId, sourceDeviceName));
+    }
+
+    [Theory]
+    [InlineData("external", "APP 备份", "")]
+    [InlineData("external", "APP备份", "")]
+    [InlineData("external", "上传完成", "上传完成")]
+    [InlineData("pc", "扫码枪停止", "扫码枪停止")]
+    public void GetStopReasonDisplay_HidesDuplicatedBackupLabel(
+        string sourceType,
+        string stopReason,
+        string expected)
+    {
+        Assert.Equal(expected, PlaybackWindow.GetStopReasonDisplay(sourceType, stopReason));
     }
 }
