@@ -53,8 +53,8 @@ public sealed class PlaybackWindowTests
     [InlineData("external", "android-1234567890a1b2c3", "手机1", "来源：手机1")]
     [InlineData("EXTERNAL", "", "", "来源：手机设备")]
     [InlineData("external", "", "一号打包手机", "来源：一号打包手机")]
-    [InlineData("pc", "pc-1", "一号电脑", "来源：本机")]
-    [InlineData("", "", "", "来源：本机")]
+    [InlineData("pc", "pc-1", "一号电脑", "来源：电脑")]
+    [InlineData("", "", "", "来源：电脑")]
     public void GetSourceDisplay_UsesBackupDeviceIdentity(
         string sourceType,
         string sourceDeviceId,

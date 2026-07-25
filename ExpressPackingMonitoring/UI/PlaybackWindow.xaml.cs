@@ -342,7 +342,7 @@ namespace ExpressPackingMonitoring.UI
             string? sourceDeviceName)
         {
             if (!string.Equals(sourceType, "external", StringComparison.OrdinalIgnoreCase))
-                return "来源：本机";
+                return "来源：电脑";
 
             return $"来源：{GetSourceDeviceDisplayName(sourceDeviceId, sourceDeviceName)}";
         }
