@@ -312,6 +312,35 @@ public sealed class ConfigurationAndScannerTests
     }
 
     [Fact]
+    public void RecordingDeviceGuideProvidesEnglishTextForBroadcastSteps()
+    {
+        var devices = new[]
+        {
+            new RecordingDeviceInfo
+            {
+                NodeId = "pc-node",
+                NodeName = "Recorder",
+                DeviceType = "pc",
+                Address = "http://192.168.1.20:5280"
+            }
+        };
+
+        string html = PrintToolInstallGuide.RenderForWeb(
+            devices,
+            "http://192.168.1.20:5280/kuaidizs.user.js");
+
+        Assert.Contains("<span>找到</span> 1 <span>个录像设备</span>", html, StringComparison.Ordinal);
+        Assert.Contains(
+            "map['确认录像设备地址']='Confirm recording device addresses'",
+            html,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "map['安装后打开 Tampermonkey 菜单，点击“发送测试订单”，脚本会分别测试所有录像设备。']",
+            html,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AddMonitorConnectPermission_AddsExactHostWithoutRequiringWildcardPermission()
     {
         const string script = "// ==UserScript==\n// @connect      localhost\n// ==/UserScript==\nconst INSTALL_MONITOR_ADDRESSES = [];\nconst INSTALL_PRIMARY_MONITOR_ADDRESS = '';";

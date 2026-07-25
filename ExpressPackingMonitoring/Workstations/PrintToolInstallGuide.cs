@@ -54,7 +54,7 @@ internal static class PrintToolInstallGuide
             ? "<div class=\"warn\">当前没有发现可接收订单的录像设备。请检查录像设备连接后重新搜索或重新生成脚本。</div>"
             : $"""
 <div class="devices">
-  <strong>找到 {devices.Count} 个录像设备</strong>
+  <strong><span>找到</span> {devices.Count} <span>个录像设备</span></strong>
   <ul>{string.Join("", devices.Select(device =>
       $"<li>{WebUtility.HtmlEncode(device.NodeName)}（{WebUtility.HtmlEncode(device.DeviceType)}）：{WebUtility.HtmlEncode(new Uri(device.Address).Authority)}</li>"))}</ul>
   <p>脚本会把订单发送给以上所有录像设备，每台设备独立处理成功或失败。</p>
