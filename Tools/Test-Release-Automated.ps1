@@ -75,6 +75,7 @@ try {
         $noCameraStorage = Join-Path $wpfDataRoot "recordings"
         $noCameraConfig = @{
             WorkstationRole = "PrintStation"
+            DeploymentSetupVersion = 1
             WebServerPort = $noCameraPort
             StorageLocations = @(@{
                 Path = $noCameraStorage
@@ -107,6 +108,7 @@ try {
         $cameraConfig = @{
             WorkstationRole = "CameraMonitor"
             FirstUseWizardCompleted = $true
+            DeploymentSetupVersion = 1
             CameraBarcodeSetupVersion = 1
             MobileConnectionSetupVersion = 1
             EnableCameraBarcodeRecognition = $false

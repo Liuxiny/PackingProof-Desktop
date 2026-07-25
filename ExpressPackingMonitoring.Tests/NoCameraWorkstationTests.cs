@@ -75,7 +75,7 @@ public sealed class NoCameraWorkstationTests
             "PrintWorkstationWindow.xaml.cs");
 
         int lanReady = source.IndexOf(
-            "if (_host.IsLanAvailable && !_config.FirstUseWizardCompleted)",
+            "if (_host.IsLanAvailable)\n                CompleteDeploymentSetup();",
             StringComparison.Ordinal);
         int presetSaved = source.IndexOf(
             "config.DeploymentPreset = DeploymentPresets.MobileBackupHost",

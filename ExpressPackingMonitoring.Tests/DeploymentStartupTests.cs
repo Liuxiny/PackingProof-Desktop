@@ -136,9 +136,10 @@ public sealed class DeploymentStartupTests
 
         Assert.Contains("JsonSerializer.Serialize(config)", appSource, StringComparison.Ordinal);
         Assert.Contains(
-            "new FirstUseSetupWizardWindow(draft, allowSkip: false)",
+            "FirstUseSetupWizardWindow.TryConfigureRecordingHost(",
             appSource,
             StringComparison.Ordinal);
+        Assert.Contains("AppConfig.ShouldRunDeploymentSetup(config)", appSource, StringComparison.Ordinal);
         Assert.Contains("bool shouldPersistDraft = string.Equals", appSource, StringComparison.Ordinal);
         Assert.Contains("if (shouldPersistDraft", appSource, StringComparison.Ordinal);
         Assert.Contains("SkipButton.Visibility = allowSkip", wizardSource, StringComparison.Ordinal);
@@ -158,11 +159,35 @@ public sealed class DeploymentStartupTests
             "if (!node.IsValidHost)",
             StringComparison.Ordinal);
         int completion = source.IndexOf(
-            "config.FirstUseWizardCompleted = true",
+            "AppConfig.MarkDeploymentSetupCompleted(config)",
             StringComparison.Ordinal);
 
         Assert.True(validation >= 0);
         Assert.True(completion > validation);
+    }
+
+    [Fact]
+    public void SwitchingNonRecordingComputerToRecordingRunsSetupBeforeSaving()
+    {
+        string viewerSource = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "Workstations",
+            "ViewerClientWindow.xaml.cs");
+        string mobileBackupSource = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "Workstations",
+            "PrintWorkstationWindow.xaml.cs");
+        string settingsSource = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "UI",
+            "SettingsWindow.xaml.cs");
+
+        AssertSetupPrecedesSave(viewerSource, "WorkstationConfigStore.TrySave(recordingConfig");
+        AssertSetupPrecedesSave(mobileBackupSource, "WorkstationConfigStore.TrySave(recordingConfig");
+        Assert.Contains(
+            "FirstUseSetupWizardWindow.TryConfigureRecordingHost(",
+            settingsSource,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -217,5 +242,16 @@ public sealed class DeploymentStartupTests
         }
 
         throw new FileNotFoundException(string.Join(Path.DirectorySeparatorChar, parts));
+    }
+
+    private static void AssertSetupPrecedesSave(string source, string saveMarker)
+    {
+        int setup = source.IndexOf(
+            "FirstUseSetupWizardWindow.TryConfigureRecordingHost(",
+            StringComparison.Ordinal);
+        int save = source.IndexOf(saveMarker, StringComparison.Ordinal);
+
+        Assert.True(setup >= 0);
+        Assert.True(save > setup);
     }
 }

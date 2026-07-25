@@ -4,6 +4,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using ExpressPackingMonitoring.Config;
 using ExpressPackingMonitoring.Services;
+using ExpressPackingMonitoring.UI;
 
 namespace ExpressPackingMonitoring;
 
@@ -13,6 +14,7 @@ public partial class ViewerClientWindow : Window
     private readonly DispatcherTimer _onlineTimer;
     private CancellationTokenSource? _searchCancellation;
     private PackingProofNodeInfo? _boundHost;
+    private bool _deploymentSetupPersisted;
 
     public ViewerClientWindow(AppConfig config)
     {
@@ -56,6 +58,7 @@ public partial class ViewerClientWindow : Window
         }
 
         _boundHost = node;
+        CompleteDeploymentSetup(node);
         IReadOnlyList<RecordingDeviceInfo> devices =
             await WorkstationNetwork.GetRecordingDevicesAsync(node.Address);
         HostNameText.Text = node.NodeName;
@@ -121,9 +124,11 @@ public partial class ViewerClientWindow : Window
                 {
                     config.DeploymentPreset = DeploymentPresets.ViewerClient;
                     config.DeploymentSchemaVersion = DeploymentPresets.CurrentSchemaVersion;
+                    config.WorkstationRole = "";
+                    config.EnableWebServer = false;
                     config.LastKnownHostNodeId = node.NodeId;
                     config.LastKnownHostAddress = node.Address;
-                    config.FirstUseWizardCompleted = true;
+                    AppConfig.MarkDeploymentSetupCompleted(config);
                 },
                 out AppConfig saved,
                 out string error))
@@ -135,6 +140,8 @@ public partial class ViewerClientWindow : Window
         _config.LastKnownHostNodeId = saved.LastKnownHostNodeId;
         _config.LastKnownHostAddress = saved.LastKnownHostAddress;
         _config.FirstUseWizardCompleted = saved.FirstUseWizardCompleted;
+        _config.DeploymentSetupVersion = saved.DeploymentSetupVersion;
+        _deploymentSetupPersisted = true;
         _boundHost = node;
         DiscoveryPanel.Visibility = Visibility.Collapsed;
         await RefreshBoundHostAsync();
@@ -182,6 +189,30 @@ public partial class ViewerClientWindow : Window
             return;
         }
 
+        if (string.Equals(
+                DeploymentPresets.RecordingHost,
+                selector.SelectedPreset,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            if (!FirstUseSetupWizardWindow.TryConfigureRecordingHost(
+                    _config,
+                    this,
+                    out AppConfig recordingConfig))
+            {
+                return;
+            }
+
+            if (!WorkstationConfigStore.TrySave(recordingConfig, out string recordingError))
+            {
+                MessageBox.Show(this, $"用途保存失败：{recordingError}", "切换用途",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            WorkstationNetwork.AskRestart(this);
+            return;
+        }
+
         if (!WorkstationConfigStore.TryUpdate(
                 config =>
                 {
@@ -207,6 +238,39 @@ public partial class ViewerClientWindow : Window
         _config.WorkstationRole = savedConfig.WorkstationRole;
         _config.EnableWebServer = savedConfig.EnableWebServer;
         WorkstationNetwork.AskRestart(this);
+    }
+
+    private void CompleteDeploymentSetup(PackingProofNodeInfo node)
+    {
+        if (_deploymentSetupPersisted)
+            return;
+
+        if (!WorkstationConfigStore.TryUpdate(
+                config =>
+                {
+                    config.DeploymentPreset = DeploymentPresets.ViewerClient;
+                    config.DeploymentSchemaVersion = DeploymentPresets.CurrentSchemaVersion;
+                    config.WorkstationRole = "";
+                    config.EnableWebServer = false;
+                    config.LastKnownHostNodeId = node.NodeId;
+                    config.LastKnownHostAddress = node.Address;
+                    AppConfig.MarkDeploymentSetupCompleted(config);
+                },
+                out AppConfig saved,
+                out _))
+        {
+            return;
+        }
+
+        _config.DeploymentPreset = saved.DeploymentPreset;
+        _config.DeploymentSchemaVersion = saved.DeploymentSchemaVersion;
+        _config.WorkstationRole = saved.WorkstationRole;
+        _config.EnableWebServer = saved.EnableWebServer;
+        _config.LastKnownHostNodeId = saved.LastKnownHostNodeId;
+        _config.LastKnownHostAddress = saved.LastKnownHostAddress;
+        _config.FirstUseWizardCompleted = saved.FirstUseWizardCompleted;
+        _config.DeploymentSetupVersion = saved.DeploymentSetupVersion;
+        _deploymentSetupPersisted = true;
     }
 
     private async void BindSelected_Click(object sender, RoutedEventArgs e)

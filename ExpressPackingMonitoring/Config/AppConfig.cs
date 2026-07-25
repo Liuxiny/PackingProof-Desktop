@@ -76,6 +76,7 @@ namespace ExpressPackingMonitoring.Config
         public const int CurrentVoiceSettingsVersion = 2;
         public const int CurrentCameraBarcodeSetupVersion = 1;
         public const int CurrentMobileConnectionSetupVersion = 1;
+        public const int CurrentDeploymentSetupVersion = 1;
 
         // 语音提醒设置迁移版本。旧配置没有该字段，加载后会从 0 迁移到当前版本。
         public int VoiceSettingsVersion { get; set; } = 0;
@@ -93,6 +94,7 @@ namespace ExpressPackingMonitoring.Config
         public string NodeName { get; set; } = "";
         public string LastKnownHostNodeId { get; set; } = "";
         public string LastKnownHostAddress { get; set; } = "";
+        public int DeploymentSetupVersion { get; set; } = 0;
 
         // 录像方式："CameraMonitor"=使用电脑摄像头录像，"PrintStation"=不使用电脑摄像头（兼容旧配置），空值表示首次启动需要选择。
         public string WorkstationRole { get; set; } = "";
@@ -581,6 +583,19 @@ namespace ExpressPackingMonitoring.Config
         {
             config.EnableCameraBarcodeRecognition = true;
             config.CameraBarcodeSetupVersion = CurrentCameraBarcodeSetupVersion;
+            MarkDeploymentSetupCompleted(config);
+        }
+
+        internal static bool ShouldRunDeploymentSetup(AppConfig config)
+        {
+            return config == null
+                || config.DeploymentSetupVersion < CurrentDeploymentSetupVersion;
+        }
+
+        internal static void MarkDeploymentSetupCompleted(AppConfig config)
+        {
+            ArgumentNullException.ThrowIfNull(config);
+            config.DeploymentSetupVersion = CurrentDeploymentSetupVersion;
             config.FirstUseWizardCompleted = true;
         }
 

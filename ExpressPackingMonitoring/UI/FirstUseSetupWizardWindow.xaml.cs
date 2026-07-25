@@ -11,6 +11,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -61,6 +62,30 @@ public partial class FirstUseSetupWizardWindow : Window
         Closed += FirstUseSetupWizardWindow_Closed;
         CameraPreviewImage.SizeChanged += (_, __) => UpdateCameraRecognitionGuide();
         ShowStep(0);
+    }
+
+    internal static bool TryConfigureRecordingHost(
+        AppConfig sourceConfig,
+        Window owner,
+        out AppConfig configuredConfig)
+    {
+        configuredConfig = JsonSerializer.Deserialize<AppConfig>(
+            JsonSerializer.Serialize(sourceConfig)) ?? new AppConfig();
+        configuredConfig.DeploymentPreset = DeploymentPresets.RecordingHost;
+        configuredConfig.DeploymentSchemaVersion = DeploymentPresets.CurrentSchemaVersion;
+        configuredConfig.WorkstationRole = WorkstationRoles.CameraMonitor;
+        configuredConfig.EnableWebServer = true;
+
+        var wizard = new FirstUseSetupWizardWindow(configuredConfig, allowSkip: false);
+        if (owner != null)
+            wizard.Owner = owner;
+        if (wizard.ShowDialog() != true || wizard.WasSkipped)
+            return false;
+
+        configuredConfig = wizard.ResultConfig;
+        AppConfig.ApplyFirstUseDefaults(configuredConfig);
+        AppConfig.NormalizeAfterLoad(configuredConfig);
+        return true;
     }
 
     private void RenderTestBarcode()

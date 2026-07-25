@@ -77,6 +77,52 @@ public sealed class DeploymentPresetTests
         Assert.False(config.EnableWebServer);
     }
 
+    [Theory]
+    [InlineData(DeploymentPresets.RecordingHost)]
+    [InlineData(DeploymentPresets.ViewerClient)]
+    [InlineData(DeploymentPresets.MobileBackupHost)]
+    public void ExistingDeploymentPresetsRequireTheCurrentSetupOnce(string preset)
+    {
+        var config = new AppConfig
+        {
+            DeploymentPreset = preset,
+            DeploymentSchemaVersion = DeploymentPresets.CurrentSchemaVersion,
+            DeploymentSetupVersion = 0,
+            FirstUseWizardCompleted = true
+        };
+
+        Assert.True(AppConfig.ShouldRunDeploymentSetup(config));
+
+        AppConfig.MarkDeploymentSetupCompleted(config);
+
+        Assert.False(AppConfig.ShouldRunDeploymentSetup(config));
+        Assert.Equal(AppConfig.CurrentDeploymentSetupVersion, config.DeploymentSetupVersion);
+        Assert.True(config.FirstUseWizardCompleted);
+    }
+
+    [Fact]
+    public void RecordingSetupEnablesCameraBarcodeWithoutChangingScannerOrUserData()
+    {
+        const string databaseMarker = @"D:\PackingProof\videos.db";
+        const string recordingPath = @"E:\录像";
+        var config = new AppConfig
+        {
+            AppRootDirectory = databaseMarker,
+            StorageLocations = [new StorageLocation { Path = recordingPath, Priority = 0 }],
+            EnableGlobalKeyboard = false,
+            EnableScannerAutoSubmit = true
+        };
+
+        AppConfig.ApplyFirstUseDefaults(config);
+
+        Assert.True(config.EnableCameraBarcodeRecognition);
+        Assert.False(config.EnableGlobalKeyboard);
+        Assert.True(config.EnableScannerAutoSubmit);
+        Assert.Equal(databaseMarker, config.AppRootDirectory);
+        Assert.Equal(recordingPath, Assert.Single(config.StorageLocations).Path);
+        Assert.Equal(AppConfig.CurrentDeploymentSetupVersion, config.DeploymentSetupVersion);
+    }
+
     [Fact]
     public void DeploymentCapabilitiesMatchTheThreeRuntimeBoundaries()
     {

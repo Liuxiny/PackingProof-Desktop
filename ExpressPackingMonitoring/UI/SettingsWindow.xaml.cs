@@ -780,6 +780,23 @@ namespace ExpressPackingMonitoring.UI
 
         private async Task<bool> SaveAndApplyAsync()
         {
+            if (!Capabilities.CanRecordPcVideo
+                && string.Equals(
+                    Config.DeploymentPreset,
+                    DeploymentPresets.RecordingHost,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                if (!FirstUseSetupWizardWindow.TryConfigureRecordingHost(
+                        Config,
+                        this,
+                        out AppConfig recordingConfig))
+                {
+                    return false;
+                }
+
+                Config = recordingConfig;
+            }
+
             Keyboard.ClearFocus();
             if (Capabilities.CanRecordAudio)
                 SyncSelectedMicToConfig();

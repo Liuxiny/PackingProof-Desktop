@@ -83,7 +83,8 @@ namespace ExpressPackingMonitoring
                 return;
 
             string startupPreset = config.DeploymentPreset;
-            if (!DeploymentPresets.IsKnown(startupPreset))
+            bool requiresDeploymentSetup = forceChoose || AppConfig.ShouldRunDeploymentSetup(config);
+            if (!DeploymentPresets.IsKnown(startupPreset) || requiresDeploymentSetup)
             {
                 var selector = new WorkstationSelectionWindow();
                 if (selector.ShowDialog() != true || string.IsNullOrWhiteSpace(selector.SelectedPreset))
@@ -114,16 +115,17 @@ namespace ExpressPackingMonitoring
                         StringComparison.Ordinal);
                 if (shouldPersistDraft)
                 {
-                    var setupWizard = new FirstUseSetupWizardWindow(draft, allowSkip: false);
-                    if (setupWizard.ShowDialog() != true || setupWizard.WasSkipped)
+                    if (!FirstUseSetupWizardWindow.TryConfigureRecordingHost(
+                            draft,
+                            owner: null,
+                            out AppConfig configuredDraft))
                     {
                         RuntimeLog.RecordShutdownRequest("RecordingHostSetupCancelled");
                         Shutdown(0);
                         return;
                     }
 
-                    draft = setupWizard.ResultConfig;
-                    AppConfig.ApplyFirstUseDefaults(draft);
+                    draft = configuredDraft;
                 }
 
                 AppConfig.NormalizeAfterLoad(draft);

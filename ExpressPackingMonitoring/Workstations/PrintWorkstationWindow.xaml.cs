@@ -30,6 +30,7 @@ public partial class PrintWorkstationWindow : Window
     private PlaybackWindow? _playbackWindow;
     private bool _loaded;
     private bool _exitRequestedFromTray;
+    private bool _deploymentSetupPersisted;
 
     public PrintWorkstationWindow(
         AppConfig config,
@@ -99,27 +100,8 @@ public partial class PrintWorkstationWindow : Window
                 cancellationToken: _lifetimeCts.Token);
             RefreshServiceDisplay();
             _deviceRefreshTimer.Start();
-            if (_host.IsLanAvailable && !_config.FirstUseWizardCompleted)
-            {
-                if (WorkstationConfigStore.TryUpdate(
-                        config =>
-                        {
-                            config.DeploymentPreset = DeploymentPresets.MobileBackupHost;
-                            config.DeploymentSchemaVersion = DeploymentPresets.CurrentSchemaVersion;
-                            config.WorkstationRole = WorkstationRoles.PrintStation;
-                            config.EnableWebServer = true;
-                            config.FirstUseWizardCompleted = true;
-                        },
-                        out AppConfig savedConfig,
-                        out _))
-                {
-                    _config.DeploymentPreset = savedConfig.DeploymentPreset;
-                    _config.DeploymentSchemaVersion = savedConfig.DeploymentSchemaVersion;
-                    _config.WorkstationRole = savedConfig.WorkstationRole;
-                    _config.EnableWebServer = savedConfig.EnableWebServer;
-                    _config.FirstUseWizardCompleted = savedConfig.FirstUseWizardCompleted;
-                }
-            }
+            if (_host.IsLanAvailable)
+                CompleteDeploymentSetup();
             if (_openPlaybackOnStartup)
                 OpenLocalPlayback();
         }
@@ -309,6 +291,8 @@ public partial class PrintWorkstationWindow : Window
         SetStatus("正在修复局域网", "Windows 可能会请求管理员授权");
         bool repaired = await _host.RepairLanAccessAsync(_lifetimeCts.Token);
         RefreshServiceDisplay();
+        if (repaired && _host.IsLanAvailable)
+            CompleteDeploymentSetup();
         RepairLanButton.IsEnabled = true;
         if (!repaired && !_host.IsRunning)
             SetStatus("局域网修复失败", _host.ErrorMessage, StatusVisual.Error);
@@ -479,6 +463,29 @@ public partial class PrintWorkstationWindow : Window
             return;
         }
 
+        if (string.Equals(
+                DeploymentPresets.RecordingHost,
+                window.SelectedPreset,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            if (!FirstUseSetupWizardWindow.TryConfigureRecordingHost(
+                    _config,
+                    this,
+                    out AppConfig recordingConfig))
+            {
+                return;
+            }
+
+            if (!WorkstationConfigStore.TrySave(recordingConfig, out string recordingError))
+            {
+                SetStatus("用途保存失败", recordingError, StatusVisual.Error);
+                return;
+            }
+
+            WorkstationNetwork.AskRestart(this);
+            return;
+        }
+
         if (!WorkstationConfigStore.TryUpdate(
                 config =>
                 {
@@ -501,5 +508,34 @@ public partial class PrintWorkstationWindow : Window
         _config.WorkstationRole = savedConfig.WorkstationRole;
         _config.EnableWebServer = savedConfig.EnableWebServer;
         WorkstationNetwork.AskRestart(this);
+    }
+
+    private void CompleteDeploymentSetup()
+    {
+        if (_deploymentSetupPersisted)
+            return;
+
+        if (!WorkstationConfigStore.TryUpdate(
+                config =>
+                {
+                    config.DeploymentPreset = DeploymentPresets.MobileBackupHost;
+                    config.DeploymentSchemaVersion = DeploymentPresets.CurrentSchemaVersion;
+                    config.WorkstationRole = WorkstationRoles.PrintStation;
+                    config.EnableWebServer = true;
+                    AppConfig.MarkDeploymentSetupCompleted(config);
+                },
+                out AppConfig savedConfig,
+                out _))
+        {
+            return;
+        }
+
+        _config.DeploymentPreset = savedConfig.DeploymentPreset;
+        _config.DeploymentSchemaVersion = savedConfig.DeploymentSchemaVersion;
+        _config.WorkstationRole = savedConfig.WorkstationRole;
+        _config.EnableWebServer = savedConfig.EnableWebServer;
+        _config.FirstUseWizardCompleted = savedConfig.FirstUseWizardCompleted;
+        _config.DeploymentSetupVersion = savedConfig.DeploymentSetupVersion;
+        _deploymentSetupPersisted = true;
     }
 }
