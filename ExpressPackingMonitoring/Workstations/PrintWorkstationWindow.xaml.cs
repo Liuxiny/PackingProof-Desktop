@@ -241,7 +241,8 @@ public partial class PrintWorkstationWindow : Window
             ApplyAsync = ApplySettingsAsync,
             ConnectionAddressProvider = () => _host.IsLanAvailable ? _host.LanAccessUrl : _host.LocalPlaybackUrl,
             ShowMobileConnection = ShowMobileConnection,
-            CopyMobileConnectionUrl = CopyMobileConnectionUrl
+            CopyMobileConnectionUrl = CopyMobileConnectionUrl,
+            OpenUserscriptGuide = OpenUserscriptGuide
         };
         (double diskUsagePercent, string diskUsageText) = GetDiskUsage(_host.StoragePath);
         var window = new SettingsWindow(
@@ -422,6 +423,11 @@ public partial class PrintWorkstationWindow : Window
     }
 
     private void InstallTool_Click(object sender, RoutedEventArgs e)
+    {
+        OpenUserscriptGuide();
+    }
+
+    private void OpenUserscriptGuide()
     {
         if (!_host.IsLanAvailable)
         {

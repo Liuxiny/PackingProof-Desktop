@@ -193,6 +193,18 @@ public sealed class DeploymentStartupTests
         Assert.DoesNotContain("PrintToolInstallGuide.CreateLocalGuide(address)", source, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void MobileBackupHostSettingsOpenHostedUserscriptGuide()
+    {
+        string source = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "Workstations",
+            "PrintWorkstationWindow.xaml.cs");
+
+        Assert.Contains("OpenUserscriptGuide = OpenUserscriptGuide", source, StringComparison.Ordinal);
+        Assert.Contains("/kuaidizs-install-guide?refresh=", source, StringComparison.Ordinal);
+    }
+
     private static string ReadRepositoryFile(params string[] parts)
     {
         DirectoryInfo? directory = new(AppContext.BaseDirectory);
