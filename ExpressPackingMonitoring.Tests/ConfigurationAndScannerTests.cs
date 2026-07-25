@@ -412,14 +412,18 @@ public sealed class ConfigurationAndScannerTests
     }
 
     [Fact]
-    public void NormalizeAfterLoad_AlwaysEnablesLanService()
+    public void NormalizeAfterLoad_PreservesDisabledLanServiceForHost()
     {
-        var config = new AppConfig { EnableWebServer = false };
+        var config = new AppConfig
+        {
+            DeploymentPreset = DeploymentPresets.RecordingHost,
+            DeploymentSchemaVersion = DeploymentPresets.CurrentSchemaVersion,
+            EnableWebServer = false
+        };
 
-        bool changed = AppConfig.NormalizeAfterLoad(config);
+        AppConfig.NormalizeAfterLoad(config);
 
-        Assert.True(changed);
-        Assert.True(config.EnableWebServer);
+        Assert.False(config.EnableWebServer);
     }
 
     [Theory]

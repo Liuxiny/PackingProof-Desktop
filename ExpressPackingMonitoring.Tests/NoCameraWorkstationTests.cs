@@ -15,12 +15,14 @@ public sealed class NoCameraWorkstationTests
     private const string AccessKey = "0123456789abcdef0123456789abcdef";
 
     [Fact]
-    public void LegacyPrintStationRoleKeepsInternalValueAndUsesNewDisplayName()
+    public void LegacyPrintStationRoleMigratesToMobileBackupHost()
     {
         var config = new AppConfig { WorkstationRole = "PrintStation" };
 
-        Assert.Equal(WorkstationRoles.PrintStation, config.WorkstationRole);
-        Assert.Equal("我没有电脑摄像头", WorkstationRoles.GetDisplayName(config.WorkstationRole));
+        AppConfig.NormalizeAfterLoad(config);
+
+        Assert.Equal(DeploymentPresets.MobileBackupHost, config.DeploymentPreset);
+        Assert.Equal("接收手机录像", DeploymentPresets.GetDisplayName(config.DeploymentPreset));
     }
 
     [Fact]
@@ -37,24 +39,24 @@ public sealed class NoCameraWorkstationTests
     }
 
     [Fact]
-    public void SettingsCapabilitiesAreDerivedFromWorkstationRole()
+    public void SettingsCapabilitiesAreDerivedFromDeploymentPreset()
     {
-        SettingsCapabilities noCamera = SettingsCapabilities.ForRole(WorkstationRoles.PrintStation);
-        SettingsCapabilities camera = SettingsCapabilities.ForRole(WorkstationRoles.CameraMonitor);
+        SettingsCapabilities noCamera = SettingsCapabilities.ForPreset(DeploymentPresets.MobileBackupHost);
+        SettingsCapabilities camera = SettingsCapabilities.ForPreset(DeploymentPresets.RecordingHost);
 
         Assert.True(noCamera.IsNoCameraWorkstation);
-        Assert.False(noCamera.SupportsCameraFeatures);
-        Assert.False(noCamera.SupportsSpeechSettings);
-        Assert.False(noCamera.SupportsScannerSettings);
-        Assert.False(noCamera.SupportsOrderVoiceSettings);
-        Assert.False(noCamera.SupportsCameraMaintenance);
+        Assert.False(noCamera.CanUseCamera);
+        Assert.False(noCamera.CanRecordAudio);
+        Assert.False(noCamera.CanUseScanner);
+        Assert.False(noCamera.IsRecordingDevice);
+        Assert.True(noCamera.CanConfigureStorage);
 
         Assert.False(camera.IsNoCameraWorkstation);
-        Assert.True(camera.SupportsCameraFeatures);
-        Assert.True(camera.SupportsSpeechSettings);
-        Assert.True(camera.SupportsScannerSettings);
-        Assert.True(camera.SupportsOrderVoiceSettings);
-        Assert.True(camera.SupportsCameraMaintenance);
+        Assert.True(camera.CanUseCamera);
+        Assert.True(camera.CanRecordAudio);
+        Assert.True(camera.CanUseScanner);
+        Assert.True(camera.IsRecordingDevice);
+        Assert.True(camera.CanRecordPcVideo);
     }
 
     [Fact]

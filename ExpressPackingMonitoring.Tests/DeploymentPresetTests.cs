@@ -1,0 +1,129 @@
+using ExpressPackingMonitoring.Config;
+using ExpressPackingMonitoring.UI;
+using Xunit;
+
+namespace ExpressPackingMonitoring.Tests;
+
+public sealed class DeploymentPresetTests
+{
+    [Fact]
+    public void CameraMonitorMigratesToRecordingHostWithoutChangingUserData()
+    {
+        const string databaseMarker = @"D:\PackingProof\videos.db";
+        const string recordingPath = @"E:\录像";
+        const string accessKey = "0123456789abcdef0123456789abcdef";
+        var config = new AppConfig
+        {
+            WorkstationRole = "CameraMonitor",
+            AppRootDirectory = databaseMarker,
+            StorageLocations = [new StorageLocation { Path = recordingPath, Priority = 0 }],
+            WebAccessKey = accessKey
+        };
+
+        AppConfig.NormalizeAfterLoad(config);
+
+        Assert.Equal(DeploymentPresets.RecordingHost, config.DeploymentPreset);
+        Assert.Equal(DeploymentPresets.CurrentSchemaVersion, config.DeploymentSchemaVersion);
+        Assert.Equal(databaseMarker, config.AppRootDirectory);
+        Assert.Equal(recordingPath, Assert.Single(config.StorageLocations).Path);
+        Assert.Equal(accessKey, config.WebAccessKey);
+    }
+
+    [Fact]
+    public void PrintStationMigratesToMobileBackupHostAndReusesPairingIdentity()
+    {
+        string existingComputerId = Guid.NewGuid().ToString("D");
+        var config = new AppConfig
+        {
+            WorkstationRole = "PrintStation",
+            MobileBackupComputerId = existingComputerId
+        };
+
+        AppConfig.NormalizeAfterLoad(config);
+
+        Assert.Equal(DeploymentPresets.MobileBackupHost, config.DeploymentPreset);
+        Assert.Equal(existingComputerId, config.MobileBackupComputerId);
+        Assert.Equal(existingComputerId, config.NodeId);
+    }
+
+    [Fact]
+    public void UnknownLegacyRoleReturnsToUnconfiguredState()
+    {
+        var config = new AppConfig
+        {
+            WorkstationRole = "UnknownRole",
+            FirstUseWizardCompleted = true
+        };
+
+        AppConfig.NormalizeAfterLoad(config);
+
+        Assert.Equal("", config.DeploymentPreset);
+        Assert.Equal(0, config.DeploymentSchemaVersion);
+        Assert.False(config.FirstUseWizardCompleted);
+    }
+
+    [Fact]
+    public void ViewerClientNeverEnablesWebServerDuringNormalization()
+    {
+        var config = new AppConfig
+        {
+            DeploymentPreset = DeploymentPresets.ViewerClient,
+            DeploymentSchemaVersion = DeploymentPresets.CurrentSchemaVersion,
+            EnableWebServer = true
+        };
+
+        AppConfig.NormalizeAfterLoad(config);
+
+        Assert.False(config.EnableWebServer);
+    }
+
+    [Fact]
+    public void DeploymentCapabilitiesMatchTheThreeRuntimeBoundaries()
+    {
+        DeploymentCapabilities recording = DeploymentCapabilities.ForPreset(DeploymentPresets.RecordingHost);
+        DeploymentCapabilities viewer = DeploymentCapabilities.ForPreset(DeploymentPresets.ViewerClient);
+        DeploymentCapabilities mobileBackup = DeploymentCapabilities.ForPreset(DeploymentPresets.MobileBackupHost);
+
+        Assert.True(recording.IsHost);
+        Assert.True(recording.IsRecordingDevice);
+        Assert.True(recording.CanUseCamera);
+        Assert.True(recording.CanRecordAudio);
+        Assert.True(recording.CanUseCameraBarcode);
+        Assert.True(recording.CanUseScanner);
+        Assert.True(recording.CanRecordPcVideo);
+        Assert.True(recording.CanReceiveMobileBackup);
+
+        Assert.False(viewer.IsHost);
+        Assert.False(viewer.IsRecordingDevice);
+        Assert.True(viewer.CanConnectHost);
+        Assert.True(viewer.CanGenerateUserscript);
+        Assert.False(viewer.CanConfigureStorage);
+        Assert.False(viewer.CanRunWebServer);
+
+        Assert.True(mobileBackup.IsHost);
+        Assert.False(mobileBackup.IsRecordingDevice);
+        Assert.True(mobileBackup.CanConfigureStorage);
+        Assert.True(mobileBackup.CanRunWebServer);
+        Assert.True(mobileBackup.CanReceiveMobileBackup);
+        Assert.False(mobileBackup.CanUseCamera);
+        Assert.False(mobileBackup.CanRecordAudio);
+        Assert.False(mobileBackup.CanRecordPcVideo);
+    }
+
+    [Fact]
+    public void SettingsCapabilitiesExposeIndependentFeatureFlags()
+    {
+        SettingsCapabilities recording = SettingsCapabilities.ForPreset(DeploymentPresets.RecordingHost);
+        SettingsCapabilities viewer = SettingsCapabilities.ForPreset(DeploymentPresets.ViewerClient);
+        SettingsCapabilities mobileBackup = SettingsCapabilities.ForPreset(DeploymentPresets.MobileBackupHost);
+
+        Assert.True(recording.CanUseCamera);
+        Assert.True(recording.CanRecordAudio);
+        Assert.True(recording.CanUseScanner);
+        Assert.False(viewer.CanUseCamera);
+        Assert.False(viewer.CanConfigureStorage);
+        Assert.True(viewer.CanConnectHost);
+        Assert.False(mobileBackup.CanRecordPcVideo);
+        Assert.True(mobileBackup.CanConfigureStorage);
+    }
+}

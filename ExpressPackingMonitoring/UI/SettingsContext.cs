@@ -7,25 +7,48 @@ namespace ExpressPackingMonitoring.UI;
 
 public sealed class SettingsCapabilities
 {
-    private SettingsCapabilities(bool supportsCameraFeatures)
+    private SettingsCapabilities(DeploymentCapabilities capabilities)
     {
-        SupportsCameraFeatures = supportsCameraFeatures;
-        SupportsSpeechSettings = supportsCameraFeatures;
-        SupportsScannerSettings = supportsCameraFeatures;
-        SupportsOrderVoiceSettings = supportsCameraFeatures;
-        SupportsCameraMaintenance = supportsCameraFeatures;
-        IsNoCameraWorkstation = !supportsCameraFeatures;
+        IsHost = capabilities.IsHost;
+        IsRecordingDevice = capabilities.IsRecordingDevice;
+        CanUseCamera = capabilities.CanUseCamera;
+        CanRecordAudio = capabilities.CanRecordAudio;
+        CanUseCameraBarcode = capabilities.CanUseCameraBarcode;
+        CanUseScanner = capabilities.CanUseScanner;
+        CanRecordPcVideo = capabilities.CanRecordPcVideo;
+        CanConfigureStorage = capabilities.CanConfigureStorage;
+        CanRunWebServer = capabilities.CanRunWebServer;
+        CanReceiveMobileBackup = capabilities.CanReceiveMobileBackup;
+        CanConnectHost = capabilities.CanConnectHost;
+        CanManageRecordingDevices = capabilities.CanManageRecordingDevices;
+        CanGenerateUserscript = capabilities.CanGenerateUserscript;
     }
 
-    public bool SupportsCameraFeatures { get; }
-    public bool SupportsSpeechSettings { get; }
-    public bool SupportsScannerSettings { get; }
-    public bool SupportsOrderVoiceSettings { get; }
-    public bool SupportsCameraMaintenance { get; }
-    public bool IsNoCameraWorkstation { get; }
+    public bool IsHost { get; }
+    public bool IsRecordingDevice { get; }
+    public bool CanUseCamera { get; }
+    public bool CanRecordAudio { get; }
+    public bool CanUseCameraBarcode { get; }
+    public bool CanUseScanner { get; }
+    public bool CanRecordPcVideo { get; }
+    public bool CanConfigureStorage { get; }
+    public bool CanRunWebServer { get; }
+    public bool CanReceiveMobileBackup { get; }
+    public bool CanConnectHost { get; }
+    public bool CanManageRecordingDevices { get; }
+    public bool CanGenerateUserscript { get; }
+
+    public bool SupportsSpeechSettings => CanRecordPcVideo;
+    public bool SupportsScannerSettings => CanUseScanner;
+    public bool SupportsOrderVoiceSettings => IsRecordingDevice;
+    public bool SupportsCameraMaintenance => CanUseCamera;
+    public bool IsNoCameraWorkstation => !CanUseCamera;
+
+    public static SettingsCapabilities ForPreset(string? preset) =>
+        new(DeploymentCapabilities.ForPreset(preset));
 
     public static SettingsCapabilities ForRole(string? role) =>
-        new(!string.Equals(role, WorkstationRoles.PrintStation, StringComparison.OrdinalIgnoreCase));
+        ForPreset(DeploymentPresets.FromLegacyRole(role));
 }
 
 public sealed class SettingsContext
@@ -48,7 +71,7 @@ public sealed class SettingsContext
         ArgumentNullException.ThrowIfNull(mainViewModel);
         return new SettingsContext
         {
-            Capabilities = SettingsCapabilities.ForRole(WorkstationRoles.CameraMonitor),
+            Capabilities = SettingsCapabilities.ForPreset(DeploymentPresets.RecordingHost),
             ApplyAsync = mainViewModel.ApplySettingsAsync,
             ConnectionAddressProvider = () => mainViewModel.MonitorAccessAddress,
             ShowMobileConnection = mainViewModel.ShowMobileConnection,

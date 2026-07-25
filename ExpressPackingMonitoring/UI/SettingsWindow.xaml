@@ -850,24 +850,30 @@
                                             <ColumnDefinition Width="260"/>
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Margin="0,0,16,0">
-                                            <TextBlock Text="录像方式" Style="{StaticResource FieldLabelStyle}"/>
-                                            <TextBlock Text="选择是否使用这台电脑的摄像头录像"
+                                            <TextBlock Text="部署场景" Style="{StaticResource FieldLabelStyle}"/>
+                                            <TextBlock Text="选择这台电脑在 PackingProof 中承担的职责"
                                                        Style="{StaticResource FieldHintStyle}"/>
                                         </StackPanel>
                                         <ComboBox Grid.Column="2"
-                                                  SelectedValue="{Binding Config.WorkstationRole}"
+                                                  SelectedValue="{Binding Config.DeploymentPreset}"
                                                   SelectedValuePath="Tag"
                                                   Cursor="Hand">
-                                            <ComboBoxItem Tag="CameraMonitor">
+                                            <ComboBoxItem Tag="RecordingHost">
                                                 <StackPanel Orientation="Horizontal">
                                                     <Path Data="{StaticResource FluentVideoIcon}" Width="16" Height="16" Stretch="Uniform" Fill="{DynamicResource AccentBlue}" Margin="0,0,8,0"/>
-                                                    <TextBlock Text="使用电脑摄像头录像"/>
+                                                    <TextBlock Text="使用这台电脑录像"/>
                                                 </StackPanel>
                                             </ComboBoxItem>
-                                            <ComboBoxItem Tag="PrintStation">
+                                            <ComboBoxItem Tag="ViewerClient">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Path Data="{StaticResource FluentWifiIcon}" Width="16" Height="16" Stretch="Uniform" Fill="{DynamicResource AccentBlue}" Margin="0,0,8,0"/>
+                                                    <TextBlock Text="连接已有主机"/>
+                                                </StackPanel>
+                                            </ComboBoxItem>
+                                            <ComboBoxItem Tag="MobileBackupHost">
                                                 <StackPanel Orientation="Horizontal">
                                                     <Path Data="{StaticResource FluentStorageIcon}" Width="16" Height="16" Stretch="Uniform" Fill="{DynamicResource AccentOrange}" Margin="0,0,8,0"/>
-                                                    <TextBlock Text="我没有电脑摄像头"/>
+                                                    <TextBlock Text="接收手机录像"/>
                                                 </StackPanel>
                                             </ComboBoxItem>
                                         </ComboBox>
@@ -918,7 +924,7 @@
                                     </Grid>
 
                                     <Grid Style="{StaticResource SettingRowStyle}"
-                                          Visibility="{Binding Capabilities.SupportsCameraFeatures, Converter={StaticResource BoolToVisibility}}">
+                                          Visibility="{Binding Capabilities.CanUseCamera, Converter={StaticResource BoolToVisibility}}">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="24"/>
@@ -939,7 +945,7 @@
 
                                     <Grid Style="{StaticResource SettingRowLastStyle}"
                                           IsEnabled="{Binding IsChecked, ElementName=AudioRecordCheckBox, TargetNullValue=False}"
-                                          Visibility="{Binding Capabilities.SupportsCameraFeatures, Converter={StaticResource BoolToVisibility}}">
+                                          Visibility="{Binding Capabilities.CanRecordAudio, Converter={StaticResource BoolToVisibility}}">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="24"/>
@@ -960,7 +966,7 @@
                             </Border>
 
                             <Border Style="{StaticResource SectionCardStyle}"
-                                    Visibility="{Binding Capabilities.SupportsCameraFeatures, Converter={StaticResource BoolToVisibility}}">
+                                    Visibility="{Binding Capabilities.CanRecordPcVideo, Converter={StaticResource BoolToVisibility}}">
                                 <StackPanel>
                                     <Grid Style="{StaticResource AdvancedSettingRowStyle}"
                                           ToolTip="H.265/HEVC 体积更小，但部分电脑或浏览器可能无法直接播放；H.264 兼容性更好">
@@ -1070,7 +1076,7 @@
             </TabItem>
 
             <TabItem Header="面单放大"
-                     Visibility="{Binding Capabilities.SupportsCameraFeatures, Converter={StaticResource BoolToVisibility}}">
+                     Visibility="{Binding Capabilities.CanRecordPcVideo, Converter={StaticResource BoolToVisibility}}">
                 <Border Background="Transparent" Padding="0,4,0,0">
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <StackPanel>
@@ -1243,7 +1249,7 @@
             </TabItem>
 
             <TabItem Header="录制控制"
-                     Visibility="{Binding Capabilities.SupportsCameraFeatures, Converter={StaticResource BoolToVisibility}}">
+                     Visibility="{Binding Capabilities.CanRecordPcVideo, Converter={StaticResource BoolToVisibility}}">
                 <Border Background="Transparent" Padding="0,4,0,0">
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <StackPanel>
@@ -1511,7 +1517,8 @@
                     </ScrollViewer>
                 </Border>
             </TabItem>
-            <TabItem Header="存储管理">
+            <TabItem Header="存储管理"
+                     Visibility="{Binding Capabilities.CanConfigureStorage, Converter={StaticResource BoolToVisibility}}">
                 <Border Background="Transparent" Padding="0,4,0,0">
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <StackPanel>
@@ -1750,7 +1757,7 @@
             </TabItem>
 
             <TabItem Header="AI 语音"
-                     Visibility="{Binding Capabilities.SupportsSpeechSettings, Converter={StaticResource BoolToVisibility}}">
+                     Visibility="{Binding Capabilities.IsRecordingDevice, Converter={StaticResource BoolToVisibility}}">
                 <Border Background="Transparent" Padding="0,4,0,0">
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <StackPanel>
@@ -2088,7 +2095,8 @@
                 </Border>
             </TabItem>
 
-            <TabItem Header="局域网查看">
+            <TabItem Header="局域网查看"
+                     Visibility="{Binding Capabilities.CanRunWebServer, Converter={StaticResource BoolToVisibility}}">
                 <Border Background="Transparent" Padding="0,4,0,0">
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <StackPanel>
@@ -2214,7 +2222,7 @@
                             </Border>
 
                             <Border Style="{StaticResource SectionCardStyle}"
-                                    Visibility="{Binding Capabilities.SupportsOrderVoiceSettings, Converter={StaticResource BoolToVisibility}}">
+                                    Visibility="{Binding Capabilities.IsRecordingDevice, Converter={StaticResource BoolToVisibility}}">
                                 <StackPanel>
                                     <Grid Style="{StaticResource SettingRowStyle}">
                                         <Grid.ColumnDefinitions>
@@ -2338,7 +2346,7 @@
                 </Border>
             </TabItem>
             <TabItem Header="扫码设置"
-                     Visibility="{Binding Capabilities.SupportsScannerSettings, Converter={StaticResource BoolToVisibility}}">
+                     Visibility="{Binding Capabilities.CanUseScanner, Converter={StaticResource BoolToVisibility}}">
                 <Border Background="Transparent" Padding="0,4,0,0">
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <StackPanel>
@@ -2699,7 +2707,7 @@
 
                             <!-- 水印设置 -->
                             <Border Style="{StaticResource SectionCardStyle}"
-                                    Visibility="{Binding Capabilities.SupportsCameraFeatures, Converter={StaticResource BoolToVisibility}}">
+                                    Visibility="{Binding Capabilities.CanRecordPcVideo, Converter={StaticResource BoolToVisibility}}">
                                 <StackPanel>
                                     <Grid Style="{StaticResource SettingRowStyle}">
                                         <Grid.ColumnDefinitions>
@@ -2834,7 +2842,7 @@
 
                             <!-- 维护工具 -->
                             <Border Style="{StaticResource SectionCardStyle}"
-                                    Visibility="{Binding Capabilities.SupportsCameraMaintenance, Converter={StaticResource BoolToVisibility}}">
+                                    Visibility="{Binding Capabilities.CanUseCamera, Converter={StaticResource BoolToVisibility}}">
                                 <StackPanel>
                                     <Grid Style="{StaticResource SettingRowStyle}">
                                         <Grid.ColumnDefinitions>

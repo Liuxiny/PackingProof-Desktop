@@ -207,7 +207,7 @@ public partial class PrintWorkstationWindow : Window
             JsonSerializer.Deserialize<AppConfig>(JsonSerializer.Serialize(_config)) ?? new AppConfig();
         var context = new SettingsContext
         {
-            Capabilities = SettingsCapabilities.ForRole(WorkstationRoles.PrintStation),
+            Capabilities = SettingsCapabilities.ForPreset(DeploymentPresets.MobileBackupHost),
             ApplyAsync = ApplySettingsAsync,
             ConnectionAddressProvider = () => _host.IsLanAvailable ? _host.LanAccessUrl : _host.LocalPlaybackUrl,
             ShowMobileConnection = ShowMobileConnection,

@@ -26,10 +26,10 @@ public sealed class SettingsCapabilityVisibilityTests
     }
 
     [Theory]
-    [InlineData("面单放大", "Capabilities.SupportsCameraFeatures")]
-    [InlineData("录制控制", "Capabilities.SupportsCameraFeatures")]
-    [InlineData("AI 语音", "Capabilities.SupportsSpeechSettings")]
-    [InlineData("扫码设置", "Capabilities.SupportsScannerSettings")]
+    [InlineData("面单放大", "Capabilities.CanRecordPcVideo")]
+    [InlineData("录制控制", "Capabilities.CanRecordPcVideo")]
+    [InlineData("AI 语音", "Capabilities.IsRecordingDevice")]
+    [InlineData("扫码设置", "Capabilities.CanUseScanner")]
     public void CameraOnlyTabsAreControlledByCapabilities(string header, string capability)
     {
         XElement tab = Assert.Single(
@@ -40,12 +40,12 @@ public sealed class SettingsCapabilityVisibilityTests
     }
 
     [Theory]
-    [InlineData("摄像头", "Capabilities.SupportsCameraFeatures")]
-    [InlineData("麦克风", "Capabilities.SupportsCameraFeatures")]
-    [InlineData("视频编码格式", "Capabilities.SupportsCameraFeatures")]
-    [InlineData("启用录像水印", "Capabilities.SupportsCameraFeatures")]
-    [InlineData("配置向导", "Capabilities.SupportsCameraMaintenance")]
-    [InlineData("订单备注播报", "Capabilities.SupportsOrderVoiceSettings")]
+    [InlineData("摄像头", "Capabilities.CanUseCamera")]
+    [InlineData("麦克风", "Capabilities.CanRecordAudio")]
+    [InlineData("视频编码格式", "Capabilities.CanRecordPcVideo")]
+    [InlineData("启用录像水印", "Capabilities.CanRecordPcVideo")]
+    [InlineData("配置向导", "Capabilities.CanUseCamera")]
+    [InlineData("订单备注播报", "Capabilities.IsRecordingDevice")]
     public void CameraOnlyRowsOrCardsAreControlledByCapabilities(string label, string capability)
     {
         XElement labelElement = Assert.Single(
@@ -60,13 +60,10 @@ public sealed class SettingsCapabilityVisibilityTests
     }
 
     [Theory]
-    [InlineData("录像方式")]
+    [InlineData("部署场景")]
     [InlineData("关闭窗口时")]
     [InlineData("界面语言")]
     [InlineData("外观主题")]
-    [InlineData("网页访问端口")]
-    [InlineData("录像网页访问密钥")]
-    [InlineData("调试日志")]
     [InlineData("显示高级设置")]
     [InlineData("开机自启动")]
     [InlineData("自动检查更新")]
@@ -81,6 +78,23 @@ public sealed class SettingsCapabilityVisibilityTests
                 .Select(element => (string?)element.Attribute("Visibility"))
                 .Where(value => value != null),
             value => value!.Contains("Capabilities.", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("网页访问端口")]
+    [InlineData("录像网页访问密钥")]
+    [InlineData("调试日志")]
+    public void HostWebSettingsAreControlledByWebServerCapability(string label)
+    {
+        XElement labelElement = Assert.Single(
+            LoadSettingsXaml().Descendants(Presentation + "TextBlock"),
+            element => (string?)element.Attribute("Text") == label);
+
+        Assert.Contains(
+            labelElement.AncestorsAndSelf()
+                .Select(element => (string?)element.Attribute("Visibility"))
+                .Where(value => value != null),
+            value => value!.Contains("Capabilities.CanRunWebServer", StringComparison.Ordinal));
     }
 
     private static XDocument LoadSettingsXaml()

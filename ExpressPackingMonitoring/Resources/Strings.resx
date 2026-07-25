@@ -513,6 +513,11 @@
   <data name="这台电脑不使用摄像头，只接收并备份手机录像，支持本机和局域网回放" xml:space="preserve"><value>This computer does not use a camera. It receives and backs up phone recordings for local and LAN playback</value></data>
   <data name="更改录像方式" xml:space="preserve"><value>Change recording mode</value></data>
   <data name="录像方式" xml:space="preserve"><value>Recording mode</value></data>
+  <data name="部署场景" xml:space="preserve"><value>Deployment preset</value></data>
+  <data name="选择这台电脑在 PackingProof 中承担的职责" xml:space="preserve"><value>Choose this computer's role in PackingProof</value></data>
+  <data name="使用这台电脑录像" xml:space="preserve"><value>Record with this computer</value></data>
+  <data name="连接已有主机" xml:space="preserve"><value>Connect to an existing host</value></data>
+  <data name="接收手机录像" xml:space="preserve"><value>Receive mobile recordings</value></data>
   <data name="RestartMode.Message" xml:space="preserve"><value>The recording mode has been saved and requires a restart&#xA;&#xA;Restart now?</value></data>
   <data name="立即重启" xml:space="preserve"><value>Restart now</value></data>
   <data name="关闭窗口" xml:space="preserve"><value>Close window</value></data>

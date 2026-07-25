@@ -86,6 +86,14 @@ namespace ExpressPackingMonitoring.Config
         // 手机扫码连接升级引导版本。旧配置缺少该字段时会在局域网服务就绪后提示一次。
         public int MobileConnectionSetupVersion { get; set; } = 0;
 
+        // 部署场景使用稳定字符串持久化，避免枚举顺序变化破坏配置兼容性。
+        public string DeploymentPreset { get; set; } = "";
+        public int DeploymentSchemaVersion { get; set; } = 0;
+        public string NodeId { get; set; } = "";
+        public string NodeName { get; set; } = "";
+        public string LastKnownHostNodeId { get; set; } = "";
+        public string LastKnownHostAddress { get; set; } = "";
+
         // 录像方式："CameraMonitor"=使用电脑摄像头录像，"PrintStation"=不使用电脑摄像头（兼容旧配置），空值表示首次启动需要选择。
         public string WorkstationRole { get; set; } = "";
         // 主程序实际运行目录。发布包中指向 app 目录，供手动增量更新包定位安装目标。
@@ -201,10 +209,45 @@ namespace ExpressPackingMonitoring.Config
         {
             bool changed = false;
 
-            if (!config.EnableWebServer)
+            string normalizedPreset = DeploymentPresets.Normalize(config.DeploymentPreset);
+            if (string.IsNullOrEmpty(normalizedPreset)
+                && config.DeploymentSchemaVersion < DeploymentPresets.CurrentSchemaVersion)
             {
-                config.EnableWebServer = true;
+                normalizedPreset = DeploymentPresets.FromLegacyRole(config.WorkstationRole);
+            }
+
+            if (!string.Equals(config.DeploymentPreset, normalizedPreset, StringComparison.Ordinal))
+            {
+                config.DeploymentPreset = normalizedPreset;
                 changed = true;
+            }
+
+            if (DeploymentPresets.IsKnown(normalizedPreset))
+            {
+                if (config.DeploymentSchemaVersion != DeploymentPresets.CurrentSchemaVersion)
+                {
+                    config.DeploymentSchemaVersion = DeploymentPresets.CurrentSchemaVersion;
+                    changed = true;
+                }
+
+                if (normalizedPreset == DeploymentPresets.ViewerClient && config.EnableWebServer)
+                {
+                    config.EnableWebServer = false;
+                    changed = true;
+                }
+            }
+            else
+            {
+                if (config.DeploymentSchemaVersion != 0)
+                {
+                    config.DeploymentSchemaVersion = 0;
+                    changed = true;
+                }
+                if (config.FirstUseWizardCompleted)
+                {
+                    config.FirstUseWizardCompleted = false;
+                    changed = true;
+                }
             }
 
             string normalizedLanguage = AppLanguage.NormalizePreference(config.Language);
@@ -225,9 +268,31 @@ namespace ExpressPackingMonitoring.Config
                 changed = true;
             }
 
+            Guid stableNodeId;
+            if (Guid.TryParse(config.NodeId, out Guid configuredNodeId) && configuredNodeId != Guid.Empty)
+            {
+                stableNodeId = configuredNodeId;
+            }
+            else if (Guid.TryParse(config.MobileBackupComputerId, out Guid existingComputerId)
+                && existingComputerId != Guid.Empty)
+            {
+                stableNodeId = existingComputerId;
+            }
+            else
+            {
+                stableNodeId = Guid.NewGuid();
+            }
+
+            string normalizedNodeId = stableNodeId.ToString("D");
+            if (!string.Equals(config.NodeId, normalizedNodeId, StringComparison.Ordinal))
+            {
+                config.NodeId = normalizedNodeId;
+                changed = true;
+            }
+
             if (!Guid.TryParse(config.MobileBackupComputerId, out Guid computerId) || computerId == Guid.Empty)
             {
-                config.MobileBackupComputerId = Guid.NewGuid().ToString("D");
+                config.MobileBackupComputerId = normalizedNodeId;
                 changed = true;
             }
             else
@@ -238,6 +303,31 @@ namespace ExpressPackingMonitoring.Config
                     config.MobileBackupComputerId = normalizedComputerId;
                     changed = true;
                 }
+            }
+
+            string normalizedNodeName = config.NodeName?.Trim() ?? "";
+            if (normalizedNodeName.Length == 0)
+                normalizedNodeName = Environment.MachineName;
+            if (!string.Equals(config.NodeName, normalizedNodeName, StringComparison.Ordinal))
+            {
+                config.NodeName = normalizedNodeName;
+                changed = true;
+            }
+
+            string normalizedHostNodeId = Guid.TryParse(config.LastKnownHostNodeId, out Guid hostNodeId)
+                && hostNodeId != Guid.Empty
+                    ? hostNodeId.ToString("D")
+                    : "";
+            if (!string.Equals(config.LastKnownHostNodeId, normalizedHostNodeId, StringComparison.Ordinal))
+            {
+                config.LastKnownHostNodeId = normalizedHostNodeId;
+                changed = true;
+            }
+            string normalizedHostAddress = config.LastKnownHostAddress?.Trim().TrimEnd('/') ?? "";
+            if (!string.Equals(config.LastKnownHostAddress, normalizedHostAddress, StringComparison.Ordinal))
+            {
+                config.LastKnownHostAddress = normalizedHostAddress;
+                changed = true;
             }
 
             string normalizedEngine = NormalizeAiTtsEngine(config.AiTtsEngine);
