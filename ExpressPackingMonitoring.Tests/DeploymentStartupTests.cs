@@ -76,6 +76,46 @@ public sealed class DeploymentStartupTests
         Assert.DoesNotContain("OpenOtherRole", source, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void FirstDeploymentUsesDraftAndRecordingHostRequiresHardwareSetup()
+    {
+        string appSource = ReadRepositoryFile("ExpressPackingMonitoring", "App.xaml.cs");
+        string wizardSource = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "UI",
+            "FirstUseSetupWizardWindow.xaml.cs");
+
+        Assert.Contains("JsonSerializer.Serialize(config)", appSource, StringComparison.Ordinal);
+        Assert.Contains(
+            "new FirstUseSetupWizardWindow(draft, allowSkip: false)",
+            appSource,
+            StringComparison.Ordinal);
+        Assert.Contains("bool shouldPersistDraft = string.Equals", appSource, StringComparison.Ordinal);
+        Assert.Contains("if (shouldPersistDraft", appSource, StringComparison.Ordinal);
+        Assert.Contains("SkipButton.Visibility = allowSkip", wizardSource, StringComparison.Ordinal);
+        Assert.Contains("录制主机必须先选择可用摄像头", wizardSource, StringComparison.Ordinal);
+        Assert.Contains("录制主机必须先选择可用麦克风", wizardSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ViewerClientCompletesFirstUseOnlyAfterBindingAValidatedHost()
+    {
+        string source = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "Workstations",
+            "ViewerClientWindow.xaml.cs");
+
+        int validation = source.IndexOf(
+            "if (!node.IsValidHost)",
+            StringComparison.Ordinal);
+        int completion = source.IndexOf(
+            "config.FirstUseWizardCompleted = true",
+            StringComparison.Ordinal);
+
+        Assert.True(validation >= 0);
+        Assert.True(completion > validation);
+    }
+
     private static string ReadRepositoryFile(params string[] parts)
     {
         DirectoryInfo? directory = new(AppContext.BaseDirectory);

@@ -44,10 +44,11 @@ public partial class FirstUseSetupWizardWindow : Window
     public bool WasSkipped { get; private set; }
     public AppConfig ResultConfig => _config;
 
-    public FirstUseSetupWizardWindow(AppConfig config)
+    public FirstUseSetupWizardWindow(AppConfig config, bool allowSkip = true)
     {
         InitializeComponent();
         _config = config;
+        SkipButton.Visibility = allowSkip ? Visibility.Visible : Visibility.Collapsed;
         _cameraBarcodeRecognition = new CameraBarcodeRecognitionService(IsCameraBarcodeCandidate);
         _cameraBarcodeRecognition.StatusChanged += CameraBarcodeRecognition_StatusChanged;
         _stepTexts = new List<TextBlock> { StepModeText, StepCameraText, StepMicText, StepScannerText, StepDoneText };
@@ -239,6 +240,21 @@ public partial class FirstUseSetupWizardWindow : Window
 
         if (_stepIndex == 4)
         {
+            if (CameraComboBox.SelectedItem is not CameraInfo selectedCamera
+                || string.IsNullOrWhiteSpace(selectedCamera.Moniker))
+            {
+                MessageBox.Show(this, "录制主机必须先选择可用摄像头", "摄像头尚未配置",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                ShowStep(1);
+                return;
+            }
+            if (MicComboBox.SelectedItem is not MicInfo selectedMic || !IsAvailableMic(selectedMic))
+            {
+                MessageBox.Show(this, "录制主机必须先选择可用麦克风", "麦克风尚未配置",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                ShowStep(2);
+                return;
+            }
             ApplySelections();
             WasSkipped = false;
             DialogResult = true;

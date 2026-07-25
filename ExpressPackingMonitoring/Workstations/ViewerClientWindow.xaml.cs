@@ -123,6 +123,7 @@ public partial class ViewerClientWindow : Window
                     config.DeploymentSchemaVersion = DeploymentPresets.CurrentSchemaVersion;
                     config.LastKnownHostNodeId = node.NodeId;
                     config.LastKnownHostAddress = node.Address;
+                    config.FirstUseWizardCompleted = true;
                 },
                 out AppConfig saved,
                 out string error))
@@ -133,6 +134,7 @@ public partial class ViewerClientWindow : Window
 
         _config.LastKnownHostNodeId = saved.LastKnownHostNodeId;
         _config.LastKnownHostAddress = saved.LastKnownHostAddress;
+        _config.FirstUseWizardCompleted = saved.FirstUseWizardCompleted;
         _boundHost = node;
         DiscoveryPanel.Visibility = Visibility.Collapsed;
         await RefreshBoundHostAsync();

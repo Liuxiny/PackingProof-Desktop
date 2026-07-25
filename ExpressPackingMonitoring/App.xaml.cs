@@ -8,6 +8,7 @@ using ExpressPackingMonitoring.Themes;
 using ExpressPackingMonitoring.ViewModels;
 using System;
 using System.Threading.Tasks;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Interop;
 
@@ -92,9 +93,54 @@ namespace ExpressPackingMonitoring
                     return;
                 }
 
-                if (!TrySaveStartupPreset(config, selector.SelectedPreset))
+                AppConfig draft = JsonSerializer.Deserialize<AppConfig>(
+                    JsonSerializer.Serialize(config)) ?? new AppConfig();
+                draft.DeploymentPreset = selector.SelectedPreset;
+                draft.DeploymentSchemaVersion = DeploymentPresets.CurrentSchemaVersion;
+                draft.EnableWebServer = !string.Equals(
+                    selector.SelectedPreset,
+                    DeploymentPresets.ViewerClient,
+                    StringComparison.Ordinal);
+                draft.WorkstationRole = selector.SelectedPreset switch
+                {
+                    DeploymentPresets.RecordingHost => WorkstationRoles.CameraMonitor,
+                    DeploymentPresets.MobileBackupHost => WorkstationRoles.PrintStation,
+                    _ => ""
+                };
+
+                bool shouldPersistDraft = string.Equals(
+                        selector.SelectedPreset,
+                        DeploymentPresets.RecordingHost,
+                        StringComparison.Ordinal);
+                if (shouldPersistDraft)
+                {
+                    var setupWizard = new FirstUseSetupWizardWindow(draft, allowSkip: false);
+                    if (setupWizard.ShowDialog() != true || setupWizard.WasSkipped)
+                    {
+                        RuntimeLog.RecordShutdownRequest("RecordingHostSetupCancelled");
+                        Shutdown(0);
+                        return;
+                    }
+
+                    draft = setupWizard.ResultConfig;
+                    AppConfig.ApplyFirstUseDefaults(draft);
+                }
+
+                AppConfig.NormalizeAfterLoad(draft);
+                if (shouldPersistDraft
+                    && !WorkstationConfigStore.TrySave(draft, out string saveError))
+                {
+                    MessageBox.Show(
+                        $"配置保存失败，程序无法安全启动。\n\n{saveError}",
+                        "启动失败",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Error);
+                    Shutdown(1);
                     return;
-                startupPreset = config.DeploymentPreset;
+                }
+
+                config = draft;
+                startupPreset = draft.DeploymentPreset;
             }
 
             if (!DeploymentPresets.IsKnown(startupPreset))

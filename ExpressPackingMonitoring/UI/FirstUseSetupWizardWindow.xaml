@@ -387,7 +387,8 @@
                 Padding="0,16,0,0">
             <Grid>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
-                    <Button Content="跳过"
+                    <Button x:Name="SkipButton"
+                            Content="跳过"
                             Style="{StaticResource SecondaryButtonStyle}"
                             Click="SkipButton_Click"/>
                 </StackPanel>
