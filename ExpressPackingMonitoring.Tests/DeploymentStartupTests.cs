@@ -191,6 +191,28 @@ public sealed class DeploymentStartupTests
     }
 
     [Fact]
+    public void RecordingSetupCopyMakesCameraRecognitionPrimaryAndScannerOptional()
+    {
+        string selector = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "Workstations",
+            "WorkstationSelectionWindow.xaml");
+        string wizard = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "UI",
+            "FirstUseSetupWizardWindow.xaml");
+        string wizardSource = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "UI",
+            "FirstUseSetupWizardWindow.xaml.cs");
+
+        Assert.Contains("优先由摄像头识别面单条码，也可选用扫码枪", selector, StringComparison.Ordinal);
+        Assert.Contains("优先使用摄像头识别面单条码", wizard, StringComparison.Ordinal);
+        Assert.Contains("没有扫码枪可直接进入下一步", wizard, StringComparison.Ordinal);
+        Assert.Contains("可选扫码枪仍可随时作为后备方案", wizardSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RecordingHostWindowExposesNodeAndUserscriptStatus()
     {
         string xaml = ReadRepositoryFile("ExpressPackingMonitoring", "UI", "MainWindow.xaml");

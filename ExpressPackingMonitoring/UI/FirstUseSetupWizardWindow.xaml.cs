@@ -115,7 +115,7 @@ public partial class FirstUseSetupWizardWindow : Window
         source.Freeze();
 
         TestBarcodeImage.Source = source;
-        TestBarcodeText.Text = $"屏幕测试条码：{_testBarcodeValue}，也可以扫描任意真实面单条码。";
+        TestBarcodeText.Text = $"可选扫码枪测试条码：{_testBarcodeValue}，也可以扫描任意真实面单条码。";
     }
 
     private async void FirstUseSetupWizardWindow_Loaded(object sender, RoutedEventArgs e)
@@ -621,7 +621,7 @@ public partial class FirstUseSetupWizardWindow : Window
         if (string.IsNullOrEmpty(content))
         {
             _scannerDetectedEnter = false;
-            ScanStatusText.Text = "等待扫码内容...";
+            ScanStatusText.Text = "没有扫码枪可直接进入下一步";
             ScanStatusText.Foreground = (System.Windows.Media.Brush)FindResource("TextSecondary");
             return;
         }
@@ -652,7 +652,7 @@ public partial class FirstUseSetupWizardWindow : Window
                 "1. 将面单条形码放入识别框开始录制\n" +
                 "2. 打包完成后将面单移出识别框至少 1.5 秒\n" +
                 "3. 再次放入同一面单，软件停止录制并保存视频\n" +
-                "4. 扫码枪仍可随时作为后备方案";
+                "4. 可选扫码枪仍可随时作为后备方案";
         }
         else
         {
@@ -661,7 +661,7 @@ public partial class FirstUseSetupWizardWindow : Window
                 "2. 完成当前包裹的打包\n" +
                 "3. 将下一张面单放入识别框\n" +
                 "4. 软件自动保存上一单并开始下一单\n" +
-                "5. 扫码枪仍可随时作为后备方案";
+                "5. 可选扫码枪仍可随时作为后备方案";
         }
     }
 

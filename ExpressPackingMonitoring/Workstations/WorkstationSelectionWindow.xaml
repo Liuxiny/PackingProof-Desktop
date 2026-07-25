@@ -76,7 +76,7 @@
                                FontSize="23"
                                FontWeight="Black"
                                Foreground="{DynamicResource TextPrimary}"/>
-                    <TextBlock Text="使用电脑摄像头、麦克风和扫码功能录制打包过程。本机会成为 PackingProof 主机，也可以接收手机录像"
+                    <TextBlock Text="使用电脑摄像头和麦克风录制打包过程，优先由摄像头识别面单条码，也可选用扫码枪。本机会成为 PackingProof 主机，也可以接收手机录像"
                                Margin="0,10,0,0"
                                FontSize="14"
                                LineHeight="22"

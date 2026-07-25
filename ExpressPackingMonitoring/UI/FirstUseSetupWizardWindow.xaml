@@ -1,7 +1,7 @@
 <Window x:Class="ExpressPackingMonitoring.UI.FirstUseSetupWizardWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="首次使用配置向导"
+        Title="电脑录像配置向导"
         Height="690"
         Width="920"
         MinHeight="660"
@@ -81,11 +81,11 @@
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0" Margin="0,0,0,22">
-            <TextBlock Text="首次使用配置向导"
+            <TextBlock Text="电脑录像配置向导"
                        FontSize="28"
                        FontWeight="Black"
                        Foreground="{DynamicResource TextPrimary}"/>
-            <TextBlock Text="按步骤完成打包模式、摄像头自动识别、麦克风和可选扫码枪"
+            <TextBlock Text="优先使用摄像头识别面单条码，按步骤配置摄像头、麦克风和可选扫码枪"
                        Margin="0,8,0,0"
                        FontSize="14"
                        Foreground="{DynamicResource TextSecondary}"/>
@@ -126,7 +126,7 @@
                                        FontSize="22"
                                        FontWeight="Black"
                                        Foreground="{DynamicResource TextPrimary}"/>
-                            <TextBlock Text="推荐连续打包模式，扫码下一单时自动保存上一单。"
+                            <TextBlock Text="推荐连续打包模式，摄像头识别下一张面单条码时自动保存上一单。"
                                        Margin="0,8,0,22"
                                        FontSize="14"
                                        Foreground="{DynamicResource TextSecondary}"/>
@@ -147,7 +147,7 @@
                                             <TextBlock Text="推荐" Foreground="White" FontSize="12" FontWeight="Bold"/>
                                         </Border>
                                     </DockPanel>
-                                    <TextBlock Text="扫描新单号后，自动结束上一单并开始下一单。"
+                                    <TextBlock Text="摄像头识别下一张面单条码后，自动结束上一单并开始下一单。"
                                                Margin="0,7,0,0"
                                                FontSize="14"
                                                TextWrapping="Wrap"
@@ -162,7 +162,7 @@
                                                FontSize="18"
                                                FontWeight="Black"
                                                Foreground="{DynamicResource TextPrimary}"/>
-                                    <TextBlock Text="扫描单号开始录制，再次扫描同一单号停止录制。"
+                                    <TextBlock Text="摄像头识别面单条码开始录制，再次识别同一条码停止录制。"
                                                Margin="0,7,0,0"
                                                FontSize="14"
                                                TextWrapping="Wrap"
@@ -288,7 +288,7 @@
                                        FontSize="22"
                                        FontWeight="Black"
                                        Foreground="{DynamicResource TextPrimary}"/>
-                            <TextBlock Text="摄像头可直接识别面单条形码；扫码枪作为后备方案长期保留，需要时可在这里测试"
+                            <TextBlock Text="没有扫码枪可直接进入下一步；如需使用，扫码枪可作为摄像头识别的后备方案在这里测试"
                                        Margin="0,8,0,18"
                                        FontSize="14"
                                        Foreground="{DynamicResource TextSecondary}"/>
@@ -325,7 +325,7 @@
                                     MinHeight="138"
                                     Padding="14">
                                 <TextBlock x:Name="ScanStatusText"
-                                           Text="等待扫码内容..."
+                                           Text="没有扫码枪可直接进入下一步"
                                            FontSize="13"
                                            LineHeight="20"
                                            TextWrapping="Wrap"

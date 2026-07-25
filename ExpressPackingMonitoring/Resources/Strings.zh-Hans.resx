@@ -27,7 +27,7 @@
   <data name="存储管理" xml:space="preserve"><value>存储管理</value></data>
   <data name="AI 语音" xml:space="preserve"><value>AI 语音</value></data>
   <data name="局域网查看" xml:space="preserve"><value>局域网查看</value></data>
-  <data name="扫码设置" xml:space="preserve"><value>扫码设置</value></data>
+  <data name="条码识别" xml:space="preserve"><value>条码识别</value></data>
   <data name="高级设置" xml:space="preserve"><value>高级设置</value></data>
   <data name="关于" xml:space="preserve"><value>关于</value></data>
   <data name="摄像头" xml:space="preserve"><value>摄像头</value></data>
@@ -275,7 +275,7 @@
   <data name="正则表达式用于过滤非法扫码内容。不了解正则时请不要修改" xml:space="preserve"><value>正则表达式用于过滤非法扫码内容。不了解正则时请不要修改</value></data>
   <data name="只有声音和画面不同步时再调整" xml:space="preserve"><value>只有声音和画面不同步时再调整</value></data>
   <data name="至少 16 个字符；留空会自动生成，修改后旧链接立即失效" xml:space="preserve"><value>至少 16 个字符；留空会自动生成，修改后旧链接立即失效</value></data>
-  <data name="重新检查打包模式、摄像头、麦克风和扫码枪" xml:space="preserve"><value>重新检查打包模式、摄像头、麦克风和扫码枪</value></data>
+  <data name="重新检查打包模式、摄像头、麦克风和可选扫码枪" xml:space="preserve"><value>重新检查打包模式、摄像头、麦克风和可选扫码枪</value></data>
   <data name="重新运行" xml:space="preserve"><value>重新运行</value></data>
   <data name="重置编码器检测" xml:space="preserve"><value>重置编码器检测</value></data>
   <data name="自动检查更新" xml:space="preserve"><value>自动检查更新</value></data>
@@ -313,7 +313,7 @@
   <data name="打开网页并复制地址" xml:space="preserve"><value>打开网页并复制地址</value></data>
   <data name="大小" xml:space="preserve"><value>大小</value></data>
   <data name="单号精准搜索:" xml:space="preserve"><value>单号精准搜索:</value></data>
-  <data name="等待扫码内容..." xml:space="preserve"><value>等待扫码内容...</value></data>
+  <data name="没有扫码枪可直接进入下一步" xml:space="preserve"><value>没有扫码枪可直接进入下一步</value></data>
   <data name="点击切换模式" xml:space="preserve"><value>点击切换模式</value></data>
   <data name="点击任意位置或扫码唤醒" xml:space="preserve"><value>点击任意位置或扫码唤醒</value></data>
   <data name="定位文件" xml:space="preserve"><value>定位文件</value></data>
@@ -342,14 +342,14 @@
   <data name="全部" xml:space="preserve"><value>全部</value></data>
   <data name="扫码动态" xml:space="preserve"><value>扫码动态</value></data>
   <data name="本机录制动态" xml:space="preserve"><value>本机录制动态</value></data>
-  <data name="扫描单号开始录制，再次扫描同一单号停止录制。" xml:space="preserve"><value>扫描单号开始录制，再次扫描同一单号停止录制。</value></data>
-  <data name="扫描新单号后，自动结束上一单并开始下一单。" xml:space="preserve"><value>扫描新单号后，自动结束上一单并开始下一单。</value></data>
+  <data name="摄像头识别面单条码开始录制，再次识别同一条码停止录制。" xml:space="preserve"><value>摄像头识别面单条码开始录制，再次识别同一条码停止录制。</value></data>
+  <data name="摄像头识别下一张面单条码后，自动结束上一单并开始下一单。" xml:space="preserve"><value>摄像头识别下一张面单条码后，自动结束上一单并开始下一单。</value></data>
   <data name="稍后再说" xml:space="preserve"><value>稍后再说</value></data>
   <data name="摄像头已休眠" xml:space="preserve"><value>摄像头已休眠</value></data>
   <data name="时间范围: " xml:space="preserve"><value>时间范围: </value></data>
   <data name="时长" xml:space="preserve"><value>时长</value></data>
   <data name="实时音量" xml:space="preserve"><value>实时音量</value></data>
-  <data name="首次使用配置向导" xml:space="preserve"><value>首次使用配置向导</value></data>
+  <data name="电脑录像配置向导" xml:space="preserve"><value>电脑录像配置向导</value></data>
   <data name="数据" xml:space="preserve"><value>数据</value></data>
   <data name="数量" xml:space="preserve"><value>数量</value></data>
   <data name="说话时音量条有跳动，就说明麦克风基础配置正常。" xml:space="preserve"><value>说话时音量条有跳动，就说明麦克风基础配置正常。</value></data>
@@ -358,7 +358,7 @@
   <data name="同码停录模式" xml:space="preserve"><value>同码停录模式</value></data>
   <data name="同一局域网内的电脑、手机等设备，可以通过主界面底部显示的局域网访问地址，打开打包视频和回放页面。请确认这些设备连接在同一个局域网内。" xml:space="preserve"><value>同一局域网内的电脑、手机等设备，可以通过主界面底部显示的局域网访问地址，打开打包视频和回放页面。请确认这些设备连接在同一个局域网内。</value></data>
   <data name="推荐" xml:space="preserve"><value>推荐</value></data>
-  <data name="推荐连续打包模式，扫码下一单时自动保存上一单。" xml:space="preserve"><value>推荐连续打包模式，扫码下一单时自动保存上一单。</value></data>
+  <data name="推荐连续打包模式，摄像头识别下一张面单条码时自动保存上一单。" xml:space="preserve"><value>推荐连续打包模式，摄像头识别下一张面单条码时自动保存上一单。</value></data>
   <data name="下面是日常打包流程。" xml:space="preserve"><value>下面是日常打包流程。</value></data>
   <data name="选择打包模式" xml:space="preserve"><value>选择打包模式</value></data>
   <data name="选择麦克风" xml:space="preserve"><value>选择麦克风</value></data>
@@ -455,12 +455,12 @@
   <data name="已手动停止录制" xml:space="preserve"><value>已手动停止录制</value></data>
   <data name="音频录制启动失败" xml:space="preserve"><value>音频录制启动失败</value></data>
   <data name="正在应用局域网服务设置..." xml:space="preserve"><value>正在应用局域网服务设置...</value></data>
-  <data name="按步骤完成打包模式、摄像头自动识别、麦克风和可选扫码枪" xml:space="preserve"><value>按步骤完成打包模式、摄像头自动识别、麦克风和可选扫码枪</value></data>
+  <data name="优先使用摄像头识别面单条码，按步骤配置摄像头、麦克风和可选扫码枪" xml:space="preserve"><value>优先使用摄像头识别面单条码，按步骤配置摄像头、麦克风和可选扫码枪</value></data>
   <data name="4. 扫码枪（可选）" xml:space="preserve"><value>4. 扫码枪（可选）</value></data>
   <data name="将面单条形码放入引导框，可同时测试摄像头画面和自动识别" xml:space="preserve"><value>将面单条形码放入引导框，可同时测试摄像头画面和自动识别</value></data>
   <data name="将面单条形码放入框内" xml:space="preserve"><value>将面单条形码放入框内</value></data>
   <data name="扫码枪（可选）" xml:space="preserve"><value>扫码枪（可选）</value></data>
-  <data name="摄像头可直接识别面单条形码；扫码枪作为后备方案长期保留，需要时可在这里测试" xml:space="preserve"><value>摄像头可直接识别面单条形码；扫码枪作为后备方案长期保留，需要时可在这里测试</value></data>
+  <data name="没有扫码枪可直接进入下一步；如需使用，扫码枪可作为摄像头识别的后备方案在这里测试" xml:space="preserve"><value>没有扫码枪可直接进入下一步；如需使用，扫码枪可作为摄像头识别的后备方案在这里测试</value></data>
   <data name="点击任意位置唤醒，再将面单放入识别框" xml:space="preserve"><value>点击任意位置唤醒，再将面单放入识别框</value></data>
   <data name="摄像头自动识别面单" xml:space="preserve"><value>摄像头自动识别面单</value></data>
   <data name="将条形码放入预览引导框，稳定识别后自动开始或切换录像" xml:space="preserve"><value>将条形码放入预览引导框，稳定识别后自动开始或切换录像</value></data>
@@ -544,7 +544,7 @@
   <data name="选择电脑用途" xml:space="preserve"><value>选择电脑用途</value></data>
   <data name="这台电脑主要用来做什么？" xml:space="preserve"><value>这台电脑主要用来做什么？</value></data>
   <data name="选择后将只启动这个场景需要的设备、存储和网络服务" xml:space="preserve"><value>选择后将只启动这个场景需要的设备、存储和网络服务</value></data>
-  <data name="使用电脑摄像头、麦克风和扫码功能录制打包过程。本机会成为 PackingProof 主机，也可以接收手机录像" xml:space="preserve"><value>使用电脑摄像头、麦克风和扫码功能录制打包过程。本机会成为 PackingProof 主机，也可以接收手机录像</value></data>
+  <data name="使用电脑摄像头和麦克风录制打包过程，优先由摄像头识别面单条码，也可选用扫码枪。本机会成为 PackingProof 主机，也可以接收手机录像" xml:space="preserve"><value>使用电脑摄像头和麦克风录制打包过程，优先由摄像头识别面单条码，也可选用扫码枪。本机会成为 PackingProof 主机，也可以接收手机录像</value></data>
   <data name="不在本机录制或保存视频，连接局域网中的 PackingProof 主机查看录像，也可以安装快递助手联动脚本" xml:space="preserve"><value>不在本机录制或保存视频，连接局域网中的 PackingProof 主机查看录像，也可以安装快递助手联动脚本</value></data>
   <data name="不使用电脑摄像头，手机录像备份到这台电脑。本机会成为 PackingProof 主机" xml:space="preserve"><value>不使用电脑摄像头，手机录像备份到这台电脑。本机会成为 PackingProof 主机</value></data>
   <data name="安装或重新生成快递助手联动脚本" xml:space="preserve"><value>安装或重新生成快递助手联动脚本</value></data>

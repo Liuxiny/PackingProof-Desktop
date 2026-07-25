@@ -29,7 +29,7 @@ public sealed class SettingsCapabilityVisibilityTests
     [InlineData("面单放大", "Capabilities.CanRecordPcVideo")]
     [InlineData("录制控制", "Capabilities.CanRecordPcVideo")]
     [InlineData("AI 语音", "Capabilities.IsRecordingDevice")]
-    [InlineData("扫码设置", "Capabilities.CanUseScanner")]
+    [InlineData("条码识别", "Capabilities.CanUseScanner")]
     public void CameraOnlyTabsAreControlledByCapabilities(string header, string capability)
     {
         XElement tab = Assert.Single(

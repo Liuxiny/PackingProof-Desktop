@@ -2345,7 +2345,7 @@
                     </ScrollViewer>
                 </Border>
             </TabItem>
-            <TabItem Header="扫码设置"
+            <TabItem Header="条码识别"
                      Visibility="{Binding Capabilities.CanUseScanner, Converter={StaticResource BoolToVisibility}}">
                 <Border Background="Transparent" Padding="0,4,0,0">
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -2852,7 +2852,7 @@
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Margin="0,0,16,0">
                                             <TextBlock Text="配置向导" Style="{StaticResource FieldLabelStyle}"/>
-                                            <TextBlock Text="重新检查打包模式、摄像头、麦克风和扫码枪"
+                                            <TextBlock Text="重新检查打包模式、摄像头、麦克风和可选扫码枪"
                                                        Style="{StaticResource FieldHintStyle}"/>
                                         </StackPanel>
                                         <Button Grid.Column="2"
