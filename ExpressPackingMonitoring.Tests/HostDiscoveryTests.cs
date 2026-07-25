@@ -1,0 +1,164 @@
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+using System.Text.Json;
+using ExpressPackingMonitoring.Config;
+using ExpressPackingMonitoring.Data;
+using ExpressPackingMonitoring.Services;
+using Microsoft.Data.Sqlite;
+using Xunit;
+
+namespace ExpressPackingMonitoring.Tests;
+
+public sealed class HostDiscoveryTests
+{
+    [Fact]
+    public async Task NodeInfoApiReturnsStablePublicHostIdentityWithoutSecrets()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"epm-node-info-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        int port = GetFreeTcpPort();
+        string nodeId = Guid.NewGuid().ToString("D");
+        try
+        {
+            using var database = new VideoDatabase(Path.Combine(directory, "videos.db"));
+            using var server = new WebServer(
+                database,
+                port,
+                requireAccessKey: true,
+                accessKey: "secret-web-access-key",
+                listenerHost: "127.0.0.1",
+                mobileBackupComputerId: Guid.NewGuid().ToString("D"),
+                mobileBackupStateDirectory: Path.Combine(directory, "uploads"),
+                mobileBackupRecordingRootResolver: () => Path.Combine(directory, "recordings"),
+                nodeId: nodeId,
+                nodeName: "一号手机备份主机",
+                deploymentPreset: DeploymentPresets.MobileBackupHost);
+            server.Start();
+
+            using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
+            string body = await client.GetStringAsync("/api/node-info", TestContext.Current.CancellationToken);
+            PackingProofNodeInfo? node = JsonSerializer.Deserialize<PackingProofNodeInfo>(body);
+
+            Assert.NotNull(node);
+            Assert.True(node.IsValidHost);
+            Assert.Equal(nodeId, node.NodeId);
+            Assert.Equal("一号手机备份主机", node.NodeName);
+            Assert.Equal(DeploymentPresets.MobileBackupHost, node.Preset);
+            Assert.Contains(PackingProofCapabilities.Host, node.Capabilities);
+            Assert.DoesNotContain("secret-web-access-key", body, StringComparison.Ordinal);
+            Assert.DoesNotContain("accessKey", body, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            try { Directory.Delete(directory, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task OrdinaryHttpServiceIsNotRecognizedAsPackingProofHost()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        CancellationToken token = TestContext.Current.CancellationToken;
+        Task responseTask = Task.Run(async () =>
+        {
+            using TcpClient accepted = await listener.AcceptTcpClientAsync(token);
+            await using NetworkStream stream = accepted.GetStream();
+            byte[] requestBuffer = new byte[2048];
+            _ = await stream.ReadAsync(requestBuffer, token);
+            byte[] response = Encoding.ASCII.GetBytes(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}");
+            await stream.WriteAsync(response, token);
+        }, token);
+
+        PackingProofNodeInfo? node = await WorkstationNetwork.GetNodeInfoAsync(
+            $"127.0.0.1:{port}",
+            token);
+        await responseTask;
+
+        Assert.Null(node);
+    }
+
+    [Fact]
+    public async Task DiscoveryValidatesSavedAddressFirstAndReturnsEveryUniqueHost()
+    {
+        string savedNodeId = Guid.NewGuid().ToString("D");
+        string otherNodeId = Guid.NewGuid().ToString("D");
+        var probes = new List<string>();
+        var probeLock = new object();
+
+        Task<PackingProofNodeInfo?> Probe(string address, CancellationToken _)
+        {
+            lock (probeLock)
+                probes.Add(address);
+            string? nodeId = address switch
+            {
+                "192.168.1.10:5280" => savedNodeId,
+                "192.168.1.20:5280" => otherNodeId,
+                "192.168.1.21:5280" => otherNodeId,
+                _ => null
+            };
+            return Task.FromResult(nodeId == null ? null : ValidNode(nodeId, address));
+        }
+
+        IReadOnlyList<PackingProofNodeInfo> hosts = await WorkstationNetwork.DiscoverHostsAsync(
+            "192.168.1.10:5280",
+            ["192.168.1.20:5280", "192.168.1.21:5280", "192.168.1.99:5280"],
+            Probe,
+            token: TestContext.Current.CancellationToken);
+
+        Assert.Equal("192.168.1.10:5280", probes[0]);
+        Assert.Equal(2, hosts.Count);
+        Assert.Equal(savedNodeId, hosts[0].NodeId);
+        Assert.Contains(hosts, host => host.NodeId == otherNodeId);
+    }
+
+    [Fact]
+    public async Task InvalidAndTimedOutCandidatesDoNotAbortDiscovery()
+    {
+        Task<PackingProofNodeInfo?> Probe(string address, CancellationToken token) =>
+            address.EndsWith(".20:5280", StringComparison.Ordinal)
+                ? Task.FromResult<PackingProofNodeInfo?>(ValidNode(Guid.NewGuid().ToString("D"), address))
+                : IgnoreTimeoutAsync(token);
+
+        IReadOnlyList<PackingProofNodeInfo> hosts = await WorkstationNetwork.DiscoverHostsAsync(
+            null,
+            ["192.168.1.10:5280", "192.168.1.20:5280", "not-a-host"],
+            Probe,
+            token: TestContext.Current.CancellationToken);
+
+        Assert.Single(hosts);
+        Assert.Equal("http://192.168.1.20:5280", hosts[0].Address);
+    }
+
+    private static async Task<PackingProofNodeInfo?> IgnoreTimeoutAsync(CancellationToken token)
+    {
+        await Task.Delay(5, token);
+        return null;
+    }
+
+    private static PackingProofNodeInfo ValidNode(string nodeId, string address) =>
+        new()
+        {
+            Protocol = PackingProofNodeInfo.ExpectedProtocol,
+            ProtocolVersion = PackingProofNodeInfo.SupportedProtocolVersion,
+            NodeId = nodeId,
+            NodeName = $"主机 {nodeId[..4]}",
+            Preset = DeploymentPresets.RecordingHost,
+            Capabilities = [PackingProofCapabilities.Host],
+            HttpPort = 5280,
+            Address = $"http://{address}"
+        };
+
+    private static int GetFreeTcpPort()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return port;
+    }
+}

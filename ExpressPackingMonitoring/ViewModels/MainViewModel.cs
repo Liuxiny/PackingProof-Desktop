@@ -2388,7 +2388,10 @@ namespace ExpressPackingMonitoring.ViewModels
                         mobileBackupComputerId: Config.MobileBackupComputerId,
                         mobileBackupComputerName: Environment.MachineName,
                         mobileBackupStateDirectory: Path.Combine(AppPaths.CacheDir, "mobile-backup"),
-                        mobileBackupRecordingRootResolver: ResolveBestStoragePath)
+                        mobileBackupRecordingRootResolver: ResolveBestStoragePath,
+                        nodeId: Config.NodeId,
+                        nodeName: Config.NodeName,
+                        deploymentPreset: DeploymentPresets.RecordingHost)
                     {
                         EnableOrderInfoLog = enableOrderInfoLog
                     };

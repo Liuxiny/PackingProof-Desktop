@@ -85,6 +85,9 @@ namespace ExpressPackingMonitoring.Services
         private readonly ConnectedClientRegistry _connectedClients;
         private readonly string _mobileBackupComputerId;
         private readonly string _mobileBackupComputerName;
+        private readonly string _nodeId;
+        private readonly string _nodeName;
+        private readonly string _deploymentPreset;
         private readonly CancellationTokenSource _cts = new();
         private readonly SemaphoreSlim _requestSlots = new(32, 32);
         private readonly SemaphoreSlim _transcodeSlot = new(1, 1);
@@ -142,7 +145,10 @@ namespace ExpressPackingMonitoring.Services
             string mobileBackupComputerId = null,
             string mobileBackupComputerName = null,
             string mobileBackupStateDirectory = null,
-            Func<string> mobileBackupRecordingRootResolver = null)
+            Func<string> mobileBackupRecordingRootResolver = null,
+            string nodeId = null,
+            string nodeName = null,
+            string deploymentPreset = null)
         {
             _db = db ?? throw new ArgumentNullException(nameof(db));
             _isRecordingProvider = isRecordingProvider ?? (() => false);
@@ -155,6 +161,17 @@ namespace ExpressPackingMonitoring.Services
             _mobileBackupComputerName = string.IsNullOrWhiteSpace(mobileBackupComputerName)
                 ? Environment.MachineName
                 : mobileBackupComputerName.Trim();
+            _nodeId = Guid.TryParse(nodeId, out Guid configuredNodeId) && configuredNodeId != Guid.Empty
+                ? configuredNodeId.ToString("D")
+                : Guid.TryParse(_mobileBackupComputerId, out Guid mobileComputerId) && mobileComputerId != Guid.Empty
+                    ? mobileComputerId.ToString("D")
+                    : Guid.NewGuid().ToString("D");
+            _nodeName = string.IsNullOrWhiteSpace(nodeName)
+                ? _mobileBackupComputerName
+                : nodeName.Trim();
+            _deploymentPreset = DeploymentPresets.IsKnown(deploymentPreset)
+                ? DeploymentPresets.Normalize(deploymentPreset)
+                : DeploymentPresets.RecordingHost;
             _clipService = new VideoClipService(
                 _db,
                 WriteLog,
@@ -548,6 +565,9 @@ namespace ExpressPackingMonitoring.Services
                     case "" or "/":
                         ServeIndexPage(ctx);
                         break;
+                    case "/api/node-info" when method == "GET":
+                        HandleNodeInfo(ctx);
+                        break;
                     case "/api/videos":
                         HandleSearchVideos(ctx);
                         break;
@@ -663,6 +683,20 @@ namespace ExpressPackingMonitoring.Services
                 || path.StartsWith("/api/videos", StringComparison.OrdinalIgnoreCase)
                 || path.StartsWith("/api/clip", StringComparison.OrdinalIgnoreCase)
                 || path.Equals("/api/mobile-connection", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void HandleNodeInfo(HttpListenerContext ctx)
+        {
+            SendJson(ctx, 200, new PackingProofNodeInfo
+            {
+                Protocol = PackingProofNodeInfo.ExpectedProtocol,
+                ProtocolVersion = PackingProofNodeInfo.SupportedProtocolVersion,
+                NodeId = _nodeId,
+                NodeName = _nodeName,
+                Preset = _deploymentPreset,
+                Capabilities = PackingProofCapabilities.ForPreset(_deploymentPreset).ToList(),
+                HttpPort = Port
+            });
         }
 
         internal static bool IsMobileBackupPath(string path) =>
@@ -1026,7 +1060,16 @@ namespace ExpressPackingMonitoring.Services
                 // 通知订阅方预生成语音缓存
                 try { OrderInfoReceived?.Invoke(items); } catch { }
 
-                SendJson(ctx, 200, new { ok = true, count, testCount = testItems.Count });
+                SendJson(ctx, 200, new
+                {
+                    success = true,
+                    ok = true,
+                    nodeId = _nodeId,
+                    nodeName = _nodeName,
+                    receivedCount = count,
+                    count,
+                    testCount = testItems.Count
+                });
             }
             catch (Exception ex)
             {

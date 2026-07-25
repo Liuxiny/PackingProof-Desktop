@@ -11,6 +11,7 @@ using System.Text.Json;
 using System.Windows;
 using ExpressPackingMonitoring.Logging;
 using ExpressPackingMonitoring.Localization;
+using ExpressPackingMonitoring.Services;
 using ExpressPackingMonitoring.UI;
 using ExpressPackingMonitoring.ViewModels;
 
@@ -248,6 +249,10 @@ public static class WorkstationNetwork
     private sealed record PendingRestart(string ExecutablePath, string WorkingDirectory, string Reason);
 
     private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromMilliseconds(800) };
+    private static readonly JsonSerializerOptions NetworkJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
     private static readonly object RestartLock = new();
     private static PendingRestart? _pendingRestart;
 
@@ -266,18 +271,38 @@ public static class WorkstationNetwork
     public static string ToUrl(string address) => $"http://{NormalizeAddress(address)}";
 
     public static async Task<bool> CanConnectAsync(string address)
+        => await GetNodeInfoAsync(address) != null;
+
+    public static async Task<PackingProofNodeInfo?> GetNodeInfoAsync(
+        string address,
+        CancellationToken token = default)
     {
         address = NormalizeAddress(address);
-        if (string.IsNullOrWhiteSpace(address)) return false;
+        if (string.IsNullOrWhiteSpace(address)) return null;
 
         try
         {
-            using var response = await Client.GetAsync($"{ToUrl(address)}/api/storage");
-            return response.IsSuccessStatusCode;
+            using var response = await Client.GetAsync($"{ToUrl(address)}/api/node-info", token);
+            if (!response.IsSuccessStatusCode)
+                return null;
+
+            await using Stream stream = await response.Content.ReadAsStreamAsync(token);
+            PackingProofNodeInfo? node = await JsonSerializer.DeserializeAsync<PackingProofNodeInfo>(
+                stream,
+                NetworkJsonOptions,
+                token);
+            if (node?.IsValidHost != true)
+                return null;
+
+            node.Address = ToUrl(address);
+            return node;
         }
-        catch
+        catch (Exception ex) when (ex is HttpRequestException
+            or TaskCanceledException
+            or JsonException
+            or InvalidOperationException)
         {
-            return false;
+            return null;
         }
     }
 
@@ -365,24 +390,92 @@ public static class WorkstationNetwork
 
     public static async Task<string?> FindMonitorAsync(int port, IProgress<string>? progress = null, CancellationToken token = default)
     {
-        var prefixes = GetLocalIpv4Prefixes().Distinct().ToList();
-        foreach (string prefix in prefixes)
+        IReadOnlyList<PackingProofNodeInfo> hosts = await FindHostsAsync(
+            lastKnownAddress: null,
+            port,
+            progress,
+            token);
+        return hosts.Count == 0 ? null : NormalizeAddress(hosts[0].Address);
+    }
+
+    public static Task<IReadOnlyList<PackingProofNodeInfo>> FindHostsAsync(
+        string? lastKnownAddress,
+        int port,
+        IProgress<string>? progress = null,
+        CancellationToken token = default)
+    {
+        IEnumerable<string> candidates = GetLocalIpv4Prefixes()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .SelectMany(prefix => Enumerable.Range(1, 254).Select(index => $"{prefix}.{index}:{port}"));
+        return DiscoverHostsAsync(lastKnownAddress, candidates, GetNodeInfoAsync, progress, token);
+    }
+
+    internal static async Task<IReadOnlyList<PackingProofNodeInfo>> DiscoverHostsAsync(
+        string? lastKnownAddress,
+        IEnumerable<string> candidates,
+        Func<string, CancellationToken, Task<PackingProofNodeInfo?>> probe,
+        IProgress<string>? progress = null,
+        CancellationToken token = default)
+    {
+        ArgumentNullException.ThrowIfNull(candidates);
+        ArgumentNullException.ThrowIfNull(probe);
+
+        var hosts = new List<PackingProofNodeInfo>();
+        var seenNodeIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seenAddresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var discoveryLock = new object();
+
+        async Task ProbeAndAddAsync(string candidate)
         {
-            for (int start = 1; start <= 254; start += 32)
+            token.ThrowIfCancellationRequested();
+            string normalized = NormalizeAddress(candidate);
+            if (normalized.Length == 0)
+                return;
+            lock (discoveryLock)
             {
-                token.ThrowIfCancellationRequested();
-                progress?.Report($"正在查找 {prefix}.x");
-                var batch = Enumerable.Range(start, Math.Min(32, 255 - start))
-                    .Select(i => $"{prefix}.{i}:{port}")
-                    .Select(async address => new { address, ok = await CanConnectAsync(address) })
-                    .ToArray();
-                var results = await Task.WhenAll(batch);
-                string? found = results.FirstOrDefault(r => r.ok)?.address;
-                if (found != null) return found;
+                if (!seenAddresses.Add(normalized))
+                    return;
+            }
+
+            PackingProofNodeInfo? node = await probe(normalized, token);
+            if (node?.IsValidHost == true)
+            {
+                lock (discoveryLock)
+                {
+                    if (seenNodeIds.Add(node.NodeId))
+                        hosts.Add(node);
+                }
             }
         }
 
-        return null;
+        string savedAddress = NormalizeAddress(lastKnownAddress ?? "");
+        if (savedAddress.Length > 0)
+        {
+            progress?.Report("正在验证上次连接的主机");
+            await ProbeAndAddAsync(savedAddress);
+        }
+
+        string[] pending = candidates
+            .Select(NormalizeAddress)
+            .Where(address => address.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        for (int start = 0; start < pending.Length; start += 32)
+        {
+            token.ThrowIfCancellationRequested();
+            string[] batch = pending.Skip(start).Take(32).ToArray();
+            if (batch.Length > 0)
+            {
+                string prefix = batch[0].Split(':')[0];
+                int lastDot = prefix.LastIndexOf('.');
+                progress?.Report(lastDot > 0
+                    ? $"正在查找 {prefix[..lastDot]}.x"
+                    : "正在搜索局域网主机");
+            }
+            await Task.WhenAll(batch.Select(ProbeAndAddAsync));
+        }
+
+        return hosts;
     }
 
     public static string GetBestLocalAccessAddress(int port)

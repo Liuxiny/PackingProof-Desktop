@@ -146,7 +146,10 @@ internal sealed class NoCameraWorkstationHost : IDisposable
             mobileBackupComputerId: _config.MobileBackupComputerId,
             mobileBackupComputerName: Environment.MachineName,
             mobileBackupStateDirectory: _stateDirectory,
-            mobileBackupRecordingRootResolver: () => StorageLocationResolver.Resolve(_config, allowDefaultFallback: false))
+            mobileBackupRecordingRootResolver: () => StorageLocationResolver.Resolve(_config, allowDefaultFallback: false),
+            nodeId: _config.NodeId,
+            nodeName: _config.NodeName,
+            deploymentPreset: DeploymentPresets.MobileBackupHost)
         {
             EnableOrderInfoLog = _config.EnableOrderInfoLog
         };
