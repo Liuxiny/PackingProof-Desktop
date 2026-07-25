@@ -7,6 +7,37 @@ namespace ExpressPackingMonitoring.Tests;
 public sealed class MobileOrderReceiverRegistryTests
 {
     [Fact]
+    public void AutomaticMobileNamesUseStableIncrementingNicknames()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"mobile-receivers-{Guid.NewGuid():N}");
+        string path = Path.Combine(directory, "order-receivers.json");
+        try
+        {
+            var registry = new MobileOrderReceiverRegistry(path);
+            MobileOrderReceiverInfo? first = registry.Register(
+                IPAddress.Parse("192.168.31.201"),
+                "mobile-device-0001",
+                "设备 ABCDEF");
+            MobileOrderReceiverInfo? second = registry.Register(
+                IPAddress.Parse("192.168.31.202"),
+                "mobile-device-0002",
+                "设备 123456");
+            MobileOrderReceiverInfo? reconnected = registry.Register(
+                IPAddress.Parse("192.168.31.203"),
+                "mobile-device-0001",
+                "设备 ABCDEF");
+
+            Assert.Equal("手机1", first?.NodeName);
+            Assert.Equal("手机2", second?.NodeName);
+            Assert.Equal("手机1", reconnected?.NodeName);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
     public void RegisterPersistsPrivateMobileAddressesAndRejectsPublicAddresses()
     {
         string directory = Path.Combine(Path.GetTempPath(), "packingproof-order-receivers-" + Guid.NewGuid().ToString("N"));

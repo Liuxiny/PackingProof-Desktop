@@ -26,7 +26,7 @@ internal sealed class MobileOrderReceiverRegistry
         _entries = Load(_path);
     }
 
-    internal void Register(
+    internal MobileOrderReceiverInfo? Register(
         IPAddress? remoteAddress,
         string? nodeId = null,
         string? nodeName = null,
@@ -34,23 +34,31 @@ internal sealed class MobileOrderReceiverRegistry
         IEnumerable<string>? capabilities = null)
     {
         string? address = NormalizePrivateIpv4(remoteAddress);
-        if (address == null) return;
+        if (address == null) return null;
 
         lock (_sync)
         {
             DateTime now = _utcNow();
+            string requestedNodeId = nodeId?.Trim() ?? "";
             Entry? existing = _entries.FirstOrDefault(item =>
-                string.Equals(item.Address, address, StringComparison.OrdinalIgnoreCase));
+                string.Equals(item.Address, address, StringComparison.OrdinalIgnoreCase)
+                || (requestedNodeId.Length > 0
+                    && string.Equals(item.NodeId, requestedNodeId, StringComparison.OrdinalIgnoreCase)));
             _entries.RemoveAll(item =>
                 string.Equals(item.Address, address, StringComparison.OrdinalIgnoreCase)
+                || (requestedNodeId.Length > 0
+                    && string.Equals(item.NodeId, requestedNodeId, StringComparison.OrdinalIgnoreCase))
                 || now - item.LastSeenUtc > Retention);
 
-            string normalizedNodeId = nodeId?.Trim() ?? "";
+            string normalizedNodeId = requestedNodeId;
             if (normalizedNodeId.Length == 0)
                 normalizedNodeId = existing?.NodeId ?? CreateFallbackNodeId(address);
             string normalizedNodeName = nodeName?.Trim() ?? "";
-            if (normalizedNodeName.Length == 0)
-                normalizedNodeName = existing?.NodeName ?? $"手机录像设备 {address}";
+            if (IsAutomaticName(normalizedNodeName))
+                normalizedNodeName = existing != null
+                    && (IsAssignedMobileName(existing.NodeName) || !IsAutomaticName(existing.NodeName))
+                    ? existing.NodeName
+                    : CreateNextMobileName();
             int normalizedPort = orderReceiverPort is > 0 and <= 65535
                 ? orderReceiverPort.Value
                 : existing?.Port is > 0 and <= 65535
@@ -63,7 +71,7 @@ internal sealed class MobileOrderReceiverRegistry
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
-            _entries.Insert(0, new Entry
+            var entry = new Entry
             {
                 Address = address,
                 LastSeenUtc = now,
@@ -71,10 +79,12 @@ internal sealed class MobileOrderReceiverRegistry
                 NodeName = normalizedNodeName,
                 Port = normalizedPort,
                 Capabilities = normalizedCapabilities
-            });
+            };
+            _entries.Insert(0, entry);
             if (_entries.Count > MaxAddresses)
                 _entries.RemoveRange(MaxAddresses, _entries.Count - MaxAddresses);
             try { Save(); } catch { }
+            return ToInfo(entry);
         }
     }
 
@@ -102,18 +112,49 @@ internal sealed class MobileOrderReceiverRegistry
             return _entries
                 .Where(item => now - item.LastSeenUtc <= ActiveRetention)
                 .OrderByDescending(item => item.LastSeenUtc)
-                .Select(item => new MobileOrderReceiverInfo(
-                    item.NodeId,
-                    item.NodeName,
-                    item.Address,
-                    item.Port is > 0 and <= 65535 ? item.Port : OrderReceiverPort,
-                    item.Capabilities?.Length > 0
-                        ? item.Capabilities
-                        : [PackingProofCapabilities.Recording, PackingProofCapabilities.OrderReceiver],
-                    Online: true))
+                .Select(ToInfo)
                 .ToArray();
         }
     }
+
+    private string CreateNextMobileName()
+    {
+        int nextNumber = _entries
+            .Select(item => item.NodeName?.Trim() ?? "")
+            .Where(name => name.StartsWith("手机", StringComparison.Ordinal))
+            .Select(name => int.TryParse(name["手机".Length..], out int number) ? number : 0)
+            .DefaultIfEmpty(0)
+            .Max() + 1;
+        return $"手机{nextNumber}";
+    }
+
+    private static bool IsAutomaticName(string? name)
+    {
+        string value = name?.Trim() ?? "";
+        return value.Length == 0
+            || value.Equals("设备", StringComparison.Ordinal)
+            || value.StartsWith("设备 ", StringComparison.Ordinal)
+            || value.StartsWith("手机录像设备 ", StringComparison.Ordinal)
+            || IsAssignedMobileName(value);
+    }
+
+    private static bool IsAssignedMobileName(string? name)
+    {
+        string value = name?.Trim() ?? "";
+        return value.StartsWith("手机", StringComparison.Ordinal)
+            && int.TryParse(value["手机".Length..], out int number)
+            && number > 0;
+    }
+
+    private static MobileOrderReceiverInfo ToInfo(Entry item) => new(
+        item.NodeId,
+        item.NodeName,
+        item.Address,
+        item.Port is > 0 and <= 65535 ? item.Port : OrderReceiverPort,
+        item.Capabilities?.Length > 0
+            ? item.Capabilities
+            : [PackingProofCapabilities.Recording, PackingProofCapabilities.OrderReceiver],
+        Online: true);
 
     internal static string GetDefaultPath() =>
         Path.Combine(AppPaths.CacheDir, "mobile-backup", "order-receivers.json");

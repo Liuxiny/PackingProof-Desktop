@@ -349,6 +349,10 @@ namespace ExpressPackingMonitoring.UI
 
         internal static string GetSourceDeviceDisplayName(string? sourceDeviceId, string? sourceDeviceName)
         {
+            string storedName = sourceDeviceName?.Trim() ?? "";
+            if (storedName.Length > 0)
+                return storedName;
+
             string normalizedId = new((sourceDeviceId ?? "")
                 .Where(char.IsLetterOrDigit)
                 .Select(char.ToUpperInvariant)
@@ -359,8 +363,7 @@ namespace ExpressPackingMonitoring.UI
                 return $"设备 {suffix}";
             }
 
-            string storedName = sourceDeviceName?.Trim() ?? "";
-            return storedName.Length == 0 ? "手机设备" : storedName;
+            return "手机设备";
         }
 
         internal static string GetStopReasonDisplay(string? sourceType, string? stopReason)

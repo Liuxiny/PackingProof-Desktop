@@ -739,7 +739,45 @@ namespace ExpressPackingMonitoring.Services
             missingKey = string.IsNullOrWhiteSpace(headerKey);
             bool authorized = !missingKey && AccessKeysEqual(headerKey, _accessKey);
             if (authorized)
-                _mobileOrderReceivers.Register(ctx.Request.RemoteEndPoint?.Address);
+            {
+                IPAddress remoteAddress = ctx.Request.RemoteEndPoint?.Address;
+                string deviceId = ctx.Request.Headers["X-EPM-Device-Id"];
+                string deviceName = ctx.Request.Headers["X-EPM-Device-Name"];
+                try { deviceName = Uri.UnescapeDataString(deviceName ?? ""); } catch { }
+                _mobileOrderReceivers.Register(
+                    remoteAddress,
+                    deviceId,
+                    deviceName,
+                    MobileOrderReceiverRegistry.OrderReceiverPort,
+                    [PackingProofCapabilities.Recording, PackingProofCapabilities.OrderReceiver]);
+
+                if (!string.IsNullOrWhiteSpace(deviceId) && !string.IsNullOrWhiteSpace(deviceName))
+                {
+                    try
+                    {
+                        _connectedClients.Heartbeat(
+                            new ConnectedClientHeartbeat
+                            {
+                                ClientId = deviceId,
+                                ClientType = "mobile-app",
+                                DisplayName = deviceName,
+                                NodeId = deviceId,
+                                DeviceType = "mobile",
+                                OrderReceiverPort = MobileOrderReceiverRegistry.OrderReceiverPort,
+                                Capabilities =
+                                [
+                                    PackingProofCapabilities.Recording,
+                                    PackingProofCapabilities.OrderReceiver
+                                ]
+                            },
+                            remoteAddress?.ToString() ?? "unknown");
+                    }
+                    catch (ConnectedClientValidationException)
+                    {
+                        // 设备身份头无效时仍允许已通过密钥验证的旧版备份请求。
+                    }
+                }
+            }
             return authorized;
         }
 
@@ -762,12 +800,20 @@ namespace ExpressPackingMonitoring.Services
 
         private void HandleMobileBackupCapabilities(HttpListenerContext ctx)
         {
+            string deviceId = ctx.Request.Headers["X-EPM-Device-Id"];
+            string deviceName = ctx.Request.Headers["X-EPM-Device-Name"];
+            try { deviceName = Uri.UnescapeDataString(deviceName ?? ""); } catch { }
+            MobileOrderReceiverInfo registeredDevice = _mobileOrderReceivers.Register(
+                ctx.Request.RemoteEndPoint?.Address,
+                deviceId,
+                deviceName);
             SendJson(ctx, 200, new
             {
                 protocol = MobileBackupService.ProtocolVersion,
                 version = 1,
                 computerId = _mobileBackupComputerId,
                 computerName = _mobileBackupComputerName,
+                deviceName = registeredDevice?.NodeName ?? deviceName,
                 maxChunkBytes = MobileBackupService.ChunkSizeBytes,
                 supportedFormats = new[] { "video/mp4" },
                 features = new
@@ -793,6 +839,17 @@ namespace ExpressPackingMonitoring.Services
                 ConnectedClientHeartbeat heartbeat = ReadJsonBody<ConnectedClientHeartbeat>(ctx);
                 string remoteAddress = ctx.Request.RemoteEndPoint?.Address.ToString() ?? "unknown";
                 _connectedClients.Heartbeat(heartbeat, remoteAddress);
+                if (heartbeat.Connected != false
+                    && string.Equals(heartbeat.ClientType, "mobile-app", StringComparison.OrdinalIgnoreCase)
+                    && IPAddress.TryParse(remoteAddress, out IPAddress mobileAddress))
+                {
+                    _mobileOrderReceivers.Register(
+                        mobileAddress,
+                        heartbeat.NodeId,
+                        heartbeat.DisplayName,
+                        heartbeat.OrderReceiverPort,
+                        heartbeat.Capabilities);
+                }
                 SendJson(ctx, 200, new
                 {
                     ok = true,
