@@ -1031,22 +1031,7 @@ namespace ExpressPackingMonitoring.UI
 
         private void InstallTool_Click(object sender, RoutedEventArgs e)
         {
-            int port = Config?.WebServerPort > 0 ? Config.WebServerPort : 5280;
-            string address = WorkstationNetwork.NormalizeAddress(Context.ConnectionAddressProvider?.Invoke() ?? "", port);
-            if (string.IsNullOrWhiteSpace(address))
-            {
-                address = WorkstationNetwork.NormalizeAddress($"127.0.0.1:{port}", port);
-            }
-
-            string guidePath = PrintToolInstallGuide.CreateLocalGuide(address);
-            try { Clipboard.SetDataObject(address, true); } catch { }
-
-            Process.Start(new ProcessStartInfo(new Uri(guidePath).AbsoluteUri) { UseShellExecute = true });
-            MessageBox.Show(this,
-                $"已打开订单备注插件安装向导，并复制本机服务地址：{address}",
-                "安装订单备注插件",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
+            Context.OpenUserscriptGuide?.Invoke();
         }
 
         private void ShowMobileConnection_Click(object sender, RoutedEventArgs e)

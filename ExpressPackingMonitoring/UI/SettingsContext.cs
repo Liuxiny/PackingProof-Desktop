@@ -58,6 +58,7 @@ public sealed class SettingsContext
     public Func<string>? ConnectionAddressProvider { get; init; }
     public Action<Window>? ShowMobileConnection { get; init; }
     public Action? CopyMobileConnectionUrl { get; init; }
+    public Action? OpenUserscriptGuide { get; init; }
     public Action<double?>? SetPreviewZoomScale { get; init; }
     public Func<bool>? SuspendCameraForSetupWizard { get; init; }
     public Action? ResumeCameraAfterSetupWizard { get; init; }
@@ -76,6 +77,7 @@ public sealed class SettingsContext
             ConnectionAddressProvider = () => mainViewModel.MonitorAccessAddress,
             ShowMobileConnection = mainViewModel.ShowMobileConnection,
             CopyMobileConnectionUrl = mainViewModel.CopyMobileConnectionUrl,
+            OpenUserscriptGuide = mainViewModel.OpenUserscriptGuide,
             SetPreviewZoomScale = value => mainViewModel.PreviewZoomScale = value,
             SuspendCameraForSetupWizard = mainViewModel.SuspendCameraForSetupWizard,
             ResumeCameraAfterSetupWizard = mainViewModel.ResumeCameraAfterSetupWizard,
