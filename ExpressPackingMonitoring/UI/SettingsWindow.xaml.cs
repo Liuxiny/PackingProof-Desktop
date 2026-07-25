@@ -1232,15 +1232,31 @@ namespace ExpressPackingMonitoring.UI
             try
             {
                 var service = new UpdateCheckService();
-                var result = await service.CheckManualAsync();
-                if (!result.HasUpdate)
+                Task<UpdateCheckResult> desktopCheck = service.CheckManualAsync();
+                Task<MobileAppReleaseInfo> mobileCheck =
+                    MobileAppUpdatePolicyProvider.Shared.CheckLatestAsync();
+                UpdateCheckResult result = await desktopCheck;
+                MobileAppReleaseInfo mobileRelease = null;
+                try
                 {
-                    CheckUpdateButton.Content = "已为最新";
-                    return;
+                    mobileRelease = await mobileCheck;
+                }
+                catch (Exception ex)
+                {
+                    RuntimeLog.Warn("MobileUpdate", $"Manual mobile update check failed: {ex.Message}");
                 }
 
-                CheckUpdateButton.Content = "发现新版本";
-                ShowUpdateDialog(result);
+                bool hasNewMobileVersion = mobileRelease != null
+                    && mobileRelease.BuildNumber
+                        > MobileAppUpdatePolicyProvider.MinimumPolicy.MinimumBuildNumber;
+                if (result.HasUpdate)
+                    ShowUpdateDialog(result);
+                if (hasNewMobileVersion)
+                    MobileAppUpdatePrompt.ShowLatest(this, mobileRelease);
+
+                CheckUpdateButton.Content = result.HasUpdate || hasNewMobileVersion
+                    ? "发现新版本"
+                    : "已为最新";
             }
             catch (Exception ex)
             {

@@ -119,6 +119,11 @@ public sealed class ConnectedClientTests
             Assert.Equal(HttpStatusCode.OK, repeated.StatusCode);
             Assert.True(payload.RootElement.GetProperty("ok").GetBoolean());
             Assert.Equal(ConnectedClientRegistry.ExpirationSeconds, payload.RootElement.GetProperty("expiresInSeconds").GetInt32());
+            JsonElement mobileUpdate = payload.RootElement.GetProperty("mobileAppUpdate");
+            Assert.Equal(11006, mobileUpdate.GetProperty("minimumBuildNumber").GetInt32());
+            Assert.Equal(
+                "当前 APP 版本过低，需要更新",
+                mobileUpdate.GetProperty("message").GetString());
             Assert.False(payload.RootElement.TryGetProperty("clients", out _));
             Assert.False(payload.RootElement.TryGetProperty("count", out _));
             ConnectedClientInfo registered = Assert.Single(server.GetConnectedClients());
@@ -135,6 +140,24 @@ public sealed class ConnectedClientTests
             SqliteConnection.ClearAllPools();
             try { Directory.Delete(directory, recursive: true); } catch { }
         }
+    }
+
+    [Fact]
+    public void RegistryStoresMobileAppVersionFromHeartbeat()
+    {
+        using var registry = new ConnectedClientRegistry(startCleanupTimer: false);
+        ConnectedClientHeartbeat heartbeat = Heartbeat(
+            "mobile-client-001",
+            "mobile-app",
+            "手机1");
+        heartbeat.AppVersion = "0.5.6";
+        heartbeat.AppBuildNumber = 11006;
+
+        registry.Heartbeat(heartbeat, "192.168.1.31");
+
+        ConnectedClientInfo client = Assert.Single(registry.GetSnapshot());
+        Assert.Equal("0.5.6", client.AppVersion);
+        Assert.Equal(11006, client.AppBuildNumber);
     }
 
     private static ConnectedClientHeartbeat Heartbeat(

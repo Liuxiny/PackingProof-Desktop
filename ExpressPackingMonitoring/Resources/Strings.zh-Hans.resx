@@ -452,6 +452,7 @@
   <data name="已打开监控网页，复制失败请重试" xml:space="preserve"><value>已打开监控网页，复制失败请重试</value></data>
   <data name="已复制并打开监控网页" xml:space="preserve"><value>已复制并打开监控网页</value></data>
   <data name="已收到测试订单" xml:space="preserve"><value>已收到测试订单</value></data>
+  <data name="检测到新版手机 App，停止录制后将提示更新" xml:space="preserve"><value>检测到新版手机 App，停止录制后将提示更新</value></data>
   <data name="已手动停止录制" xml:space="preserve"><value>已手动停止录制</value></data>
   <data name="音频录制启动失败" xml:space="preserve"><value>音频录制启动失败</value></data>
   <data name="正在应用局域网服务设置..." xml:space="preserve"><value>正在应用局域网服务设置...</value></data>

@@ -452,6 +452,7 @@
   <data name="已打开监控网页，复制失败请重试" xml:space="preserve"><value>The monitoring webpage has been opened. Copying failed. Please try again.</value></data>
   <data name="已复制并打开监控网页" xml:space="preserve"><value>Copied and opened the monitoring web page</value></data>
   <data name="已收到测试订单" xml:space="preserve"><value>Test order received</value></data>
+  <data name="检测到新版手机 App，停止录制后将提示更新" xml:space="preserve"><value>A phone app update was found and will be shown after recording stops</value></data>
   <data name="已手动停止录制" xml:space="preserve"><value>Recording stopped manually</value></data>
   <data name="音频录制启动失败" xml:space="preserve"><value>Audio recording failed to start</value></data>
   <data name="正在应用局域网服务设置..." xml:space="preserve"><value>Applying LAN service settings...</value></data>

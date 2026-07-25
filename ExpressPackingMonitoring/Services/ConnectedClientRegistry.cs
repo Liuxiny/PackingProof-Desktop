@@ -56,6 +56,10 @@ internal sealed class ConnectedClientRegistry : IDisposable
             ? heartbeat.OrderReceiverPort.Value
             : MobileOrderReceiverRegistry.OrderReceiverPort;
         string[] capabilities = NormalizeCapabilities(heartbeat.Capabilities);
+        string appVersion = NormalizeAppVersion(heartbeat.AppVersion);
+        int appBuildNumber = heartbeat.AppBuildNumber.GetValueOrDefault();
+        if (appBuildNumber < 0)
+            appBuildNumber = 0;
         string key = BuildKey(clientType, clientId);
 
         if (heartbeat.Connected == false)
@@ -81,7 +85,9 @@ internal sealed class ConnectedClientRegistry : IDisposable
                     nodeId,
                     deviceType,
                     orderReceiverPort,
-                    capabilities);
+                    capabilities,
+                    appVersion,
+                    appBuildNumber);
             },
             (_, existing) =>
             {
@@ -92,6 +98,9 @@ internal sealed class ConnectedClientRegistry : IDisposable
                 {
                     changed = true;
                 }
+                if (!string.Equals(existing.AppVersion, appVersion, StringComparison.Ordinal)
+                    || existing.AppBuildNumber != appBuildNumber)
+                    changed = true;
                 return existing with
                 {
                     DisplayName = displayName,
@@ -100,7 +109,9 @@ internal sealed class ConnectedClientRegistry : IDisposable
                     NodeId = nodeId,
                     DeviceType = deviceType,
                     OrderReceiverPort = orderReceiverPort,
-                    Capabilities = capabilities
+                    Capabilities = capabilities,
+                    AppVersion = appVersion,
+                    AppBuildNumber = appBuildNumber
                 };
             });
 
@@ -196,6 +207,12 @@ internal sealed class ConnectedClientRegistry : IDisposable
                 : fallback;
     }
 
+    private static string NormalizeAppVersion(string? value)
+    {
+        string result = value?.Trim() ?? "";
+        return result.Length <= 32 ? result : "";
+    }
+
     private static string NormalizeDeviceType(string? value)
     {
         string result = value?.Trim().ToLowerInvariant() ?? "";
@@ -241,6 +258,8 @@ internal sealed class ConnectedClientHeartbeat
     public string DeviceType { get; set; } = "";
     public int? OrderReceiverPort { get; set; }
     public string[] Capabilities { get; set; } = [];
+    public string AppVersion { get; set; } = "";
+    public int? AppBuildNumber { get; set; }
 }
 
 internal sealed record ConnectedClientInfo(
@@ -252,7 +271,9 @@ internal sealed record ConnectedClientInfo(
     string NodeId,
     string DeviceType,
     int OrderReceiverPort,
-    IReadOnlyList<string> Capabilities);
+    IReadOnlyList<string> Capabilities,
+    string AppVersion = "",
+    int AppBuildNumber = 0);
 
 internal sealed class ConnectedClientValidationException(string errorCode, string message) : Exception(message)
 {

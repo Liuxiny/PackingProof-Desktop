@@ -33,6 +33,7 @@ internal sealed class NoCameraWorkstationHost : IDisposable
     public string ErrorMessage { get; private set; } = "";
     public VideoDatabase Database =>
         _database ?? throw new InvalidOperationException("录像数据库尚未打开");
+    public event Action<MobileAppUpdateAvailableInfo>? MobileAppUpdateAvailable;
 
     public IReadOnlyList<RecordingDeviceInfo> GetRecordingDevices()
     {
@@ -160,7 +161,7 @@ internal sealed class NoCameraWorkstationHost : IDisposable
 
     private WebServer CreateServer(string listenerHost)
     {
-        return new WebServer(
+        var server = new WebServer(
             _database!,
             _config.WebServerPort,
             _config.TranscodeCacheMaxMB,
@@ -178,6 +179,11 @@ internal sealed class NoCameraWorkstationHost : IDisposable
         {
             EnableOrderInfoLog = _config.EnableOrderInfoLog
         };
+        server.MobileAppUpdateAvailable += update =>
+        {
+            try { MobileAppUpdateAvailable?.Invoke(update); } catch { }
+        };
+        return server;
     }
 
     private void StopServer()

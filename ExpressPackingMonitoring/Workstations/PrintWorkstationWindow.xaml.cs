@@ -43,6 +43,7 @@ public partial class PrintWorkstationWindow : Window
         _openPlaybackOnStartup = openPlaybackOnStartup;
         _requestLanAccessOnStartup = requestLanAccessOnStartup;
         _host = new NoCameraWorkstationHost(config);
+        _host.MobileAppUpdateAvailable += OnMobileAppUpdateAvailable;
         _closeBehaviorController = new WindowCloseBehaviorController(
             this,
             RequestExitFromTray,
@@ -283,6 +284,15 @@ public partial class PrintWorkstationWindow : Window
     {
         RecorderCountTextBlock.Text = $"当前录像设备：{_host.GetRecordingDevices().Count}";
         ConnectedPhoneCountTextBlock.Text = $"已连接手机：{_host.GetConnectedMobileCount()}";
+    }
+
+    private void OnMobileAppUpdateAvailable(MobileAppUpdateAvailableInfo update)
+    {
+        _ = Dispatcher.InvokeAsync(() =>
+        {
+            if (IsLoaded)
+                MobileAppUpdatePrompt.Show(this, update);
+        });
     }
 
     private async void RepairLan_Click(object sender, RoutedEventArgs e)

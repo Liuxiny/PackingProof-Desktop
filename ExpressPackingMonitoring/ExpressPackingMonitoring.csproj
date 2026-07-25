@@ -115,6 +115,7 @@
     <Compile Include="Services\ConnectedClientRegistry.cs" />
     <Compile Include="Services\FfmpegWorkLimiter.cs" />
     <Compile Include="Services\MobileConnectionService.cs" />
+    <Compile Include="Services\MobileAppUpdatePolicyProvider.cs" />
     <Compile Include="Services\MobileBackupService.cs" />
     <Compile Include="Services\MobileOrderReceiverRegistry.cs" />
     <Compile Include="Services\NoCameraWorkstationHost.cs" />
@@ -139,6 +140,7 @@
     <Compile Include="UI\FirstUseSetupWizardWindow.xaml.cs" />
     <Compile Include="UI\MainWindow.xaml.cs" />
     <Compile Include="UI\MarkdownFlowDocumentRenderer.cs" />
+    <Compile Include="UI\MobileAppUpdatePrompt.cs" />
     <Compile Include="UI\MobileConnectionWindow.xaml.cs" />
     <Compile Include="UI\PlaybackWindow.xaml.cs" />
     <Compile Include="UI\SettingsWindow.xaml.cs" />

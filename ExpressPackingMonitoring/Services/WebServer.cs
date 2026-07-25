@@ -83,6 +83,9 @@ namespace ExpressPackingMonitoring.Services
         private readonly MobileBackupService _mobileBackupService;
         private readonly MobileOrderReceiverRegistry _mobileOrderReceivers;
         private readonly ConnectedClientRegistry _connectedClients;
+        private readonly MobileAppUpdatePolicyProvider _mobileAppUpdatePolicy =
+            MobileAppUpdatePolicyProvider.Shared;
+        private readonly ConcurrentDictionary<string, byte> _notifiedMobileAppUpdates = new();
         private readonly string _mobileBackupComputerId;
         private readonly string _mobileBackupComputerName;
         private readonly string _nodeId;
@@ -110,6 +113,7 @@ namespace ExpressPackingMonitoring.Services
         /// <summary>收到油猴脚本推送的订单信息时触发，参数为本次推送的所有订单</summary>
         public event Action<List<OrderInfo>> OrderInfoReceived;
         internal event Action<IReadOnlyList<ConnectedClientInfo>> ConnectedClientsChanged;
+        internal event Action<MobileAppUpdateAvailableInfo> MobileAppUpdateAvailable;
 
         public int Port { get; }
         public bool EnableOrderInfoLog { get; set; }
@@ -262,6 +266,7 @@ namespace ExpressPackingMonitoring.Services
                     throw;
                 }
             }
+            _mobileAppUpdatePolicy.RefreshInBackground();
             _listenTask = Task.Run(() => ListenLoop(_cts.Token));
         }
 
@@ -850,11 +855,21 @@ namespace ExpressPackingMonitoring.Services
                         heartbeat.OrderReceiverPort,
                         heartbeat.Capabilities);
                 }
+                _mobileAppUpdatePolicy.RefreshInBackground();
+                NotifyMobileAppUpdateIfNeeded(heartbeat);
+                MobileAppUpdatePolicy updatePolicy = MobileAppUpdatePolicyProvider.MinimumPolicy;
                 SendJson(ctx, 200, new
                 {
                     ok = true,
                     heartbeatIntervalSeconds = ConnectedClientRegistry.HeartbeatIntervalSeconds,
-                    expiresInSeconds = ConnectedClientRegistry.ExpirationSeconds
+                    expiresInSeconds = ConnectedClientRegistry.ExpirationSeconds,
+                    mobileAppUpdate = new
+                    {
+                        schemaVersion = updatePolicy.SchemaVersion,
+                        minimumVersion = updatePolicy.MinimumVersion,
+                        minimumBuildNumber = updatePolicy.MinimumBuildNumber,
+                        message = updatePolicy.Message
+                    }
                 });
             }
             catch (ConnectedClientValidationException ex)
@@ -869,6 +884,33 @@ namespace ExpressPackingMonitoring.Services
         }
 
         internal IReadOnlyList<ConnectedClientInfo> GetConnectedClients() => _connectedClients.GetSnapshot();
+
+        private void NotifyMobileAppUpdateIfNeeded(ConnectedClientHeartbeat heartbeat)
+        {
+            if (!string.Equals(heartbeat.ClientType, "mobile-app", StringComparison.OrdinalIgnoreCase)
+                || heartbeat.Connected == false)
+                return;
+
+            MobileAppReleaseInfo latest = _mobileAppUpdatePolicy.LatestRelease;
+            if (!MobileAppUpdatePolicyProvider.IsUpdateAvailable(
+                    heartbeat.AppBuildNumber.GetValueOrDefault(),
+                    latest))
+                return;
+
+            string nodeId = string.IsNullOrWhiteSpace(heartbeat.NodeId)
+                ? heartbeat.ClientId.Trim()
+                : heartbeat.NodeId.Trim();
+            string notificationKey = $"{nodeId}:{latest.BuildNumber}";
+            if (!_notifiedMobileAppUpdates.TryAdd(notificationKey, 0))
+                return;
+
+            var update = new MobileAppUpdateAvailableInfo(
+                heartbeat.DisplayName?.Trim() ?? "",
+                heartbeat.AppVersion?.Trim() ?? "",
+                heartbeat.AppBuildNumber.GetValueOrDefault(),
+                latest);
+            try { MobileAppUpdateAvailable?.Invoke(update); } catch { }
+        }
 
         private void HandleCreateMobileBackupUpload(HttpListenerContext ctx)
         {
