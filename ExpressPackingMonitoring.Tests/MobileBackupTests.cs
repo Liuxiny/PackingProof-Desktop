@@ -471,10 +471,10 @@ public sealed class MobileBackupTests
                 $"/kuaidizs-order-push.user.js?connect=127.0.0.1:{port}",
                 TestContext.Current.CancellationToken);
 
-            Assert.Contains($"const INSTALL_MONITOR_ADDRESSES = [\"192.168.31.250:{port}\",\"192.168.31.205:5280\"]", script);
-            Assert.Contains($"const INSTALL_PRIMARY_MONITOR_ADDRESS = \"192.168.31.250:{port}\"", script);
+            Assert.Contains($"\"url\":\"http://192.168.31.250:{port}\"", script);
+            Assert.Contains("\"url\":\"http://192.168.31.205:5280\"", script);
             Assert.Contains("// @connect      192.168.31.205", script);
-            Assert.DoesNotContain("const INSTALL_MONITOR_ADDRESSES = [\"127.0.0.1", script);
+            Assert.DoesNotContain("// @connect      127.0.0.1", script);
         }
         finally
         {

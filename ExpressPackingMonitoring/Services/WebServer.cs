@@ -2491,11 +2491,9 @@ namespace ExpressPackingMonitoring.Services
         private void ServeInstallGuidePage(HttpListenerContext ctx)
         {
             string authority = ctx.Request.Url?.Authority ?? $"127.0.0.1:{ctx.Request.LocalEndPoint?.Port ?? 5280}";
-            List<Uri> monitorAddresses = GetUserscriptMonitorAddresses(ctx, authority);
-            string encodedAddresses = Uri.EscapeDataString(string.Join(',', monitorAddresses.Select(uri => uri.Authority)));
-            string scriptUrl = $"{ctx.Request.Url?.Scheme ?? "http"}://{authority}/kuaidizs-order-push.user.js?connect={encodedAddresses}";
-            string displayedAuthority = monitorAddresses.FirstOrDefault()?.Authority ?? authority;
-            string html = PrintToolInstallGuide.RenderForWeb(displayedAuthority, scriptUrl);
+            IReadOnlyList<RecordingDeviceInfo> devices = GetRecordingDevices(authority);
+            string scriptUrl = $"{ctx.Request.Url?.Scheme ?? "http"}://{authority}/kuaidizs-order-push.user.js";
+            string html = PrintToolInstallGuide.RenderForWeb(devices, scriptUrl);
             ctx.Response.StatusCode = 200;
             ctx.Response.ContentType = "text/html; charset=utf-8";
             byte[] bytes = Encoding.UTF8.GetBytes(html);
@@ -2515,9 +2513,26 @@ namespace ExpressPackingMonitoring.Services
 
             string script = File.ReadAllText(scriptPath, Encoding.UTF8);
             string authority = ctx.Request.Url?.Authority ?? "";
-            script = PrintToolInstallGuide.AddMonitorConnectPermissions(
-                script,
-                GetUserscriptMonitorAddresses(ctx, authority).Select(uri => uri.Authority));
+            IReadOnlyList<RecordingDeviceInfo> devices = GetRecordingDevices(authority);
+            if (devices.Count == 0)
+            {
+                SendJson(ctx, 409, new { error = "当前没有发现可接收订单的录像设备" });
+                return;
+            }
+
+            string primaryAuthority = ResolveUserscriptPrimaryAuthority(authority);
+            var host = new PackingProofNodeInfo
+            {
+                Protocol = PackingProofNodeInfo.ExpectedProtocol,
+                ProtocolVersion = PackingProofNodeInfo.SupportedProtocolVersion,
+                NodeId = _nodeId,
+                NodeName = _nodeName,
+                Preset = _deploymentPreset,
+                Capabilities = PackingProofCapabilities.ForPreset(_deploymentPreset).ToList(),
+                HttpPort = Port,
+                Address = $"http://{primaryAuthority}"
+            };
+            script = PrintToolInstallGuide.AddRecordingDevices(script, devices, host);
             ctx.Response.StatusCode = 200;
             ctx.Response.ContentType = "application/javascript; charset=utf-8";
             ctx.Response.Headers["Content-Disposition"] = "inline; filename=\"kuaidizs-order-push.user.js\"";

@@ -253,7 +253,7 @@ public sealed class ConfigurationAndScannerTests
     }
 
     [Fact]
-    public void Userscript_AvoidsSubnetScanningAndSendsTestOrderDirectly()
+    public void Userscript_BroadcastsToEveryConfiguredRecorderIndependently()
     {
         string scriptPath = Path.Combine(AppContext.BaseDirectory, "Scripts", "快递助手订单推送.user.js");
         string script = File.ReadAllText(scriptPath);
@@ -266,11 +266,49 @@ public sealed class ConfigurationAndScannerTests
         Assert.Contains("GM_registerMenuCommand('添加上位机'", script);
         Assert.Contains("GM_registerMenuCommand('移除上位机'", script);
         Assert.Contains("const MAX_MONITOR_ADDRESSES = 8", script);
-        Assert.Contains("Promise.all(addresses.map(address => pushOrdersToAddress(address, orders)))", script);
+        Assert.Contains("const PACKING_PROOF_RECORDERS = []", script);
+        Assert.Contains("Promise.allSettled(", script);
+        Assert.Contains("devices.map(device => sendOrderToRecorder(device, orders))", script);
+        Assert.Contains("console.warn(`[PackingProof] ${result.name}", script);
         Assert.Contains("successfulCount: successful.length", script);
         Assert.Contains("result.response?.service !== 'packingproof-mobile'", script);
         Assert.Contains("await pushToMonitor(buildTestOrder(), { isTest: true, skipAddressDiscovery: true });", script);
         Assert.DoesNotContain("const connected = await ensureMonitorAddress(true);", script);
+        Assert.DoesNotContain("// @connect      127.0.0.1", script);
+        Assert.DoesNotContain("// @connect      localhost", script);
+    }
+
+    [Fact]
+    public void AddRecordingDevices_WritesEveryRecorderAndExactConnectPermission()
+    {
+        const string script = "// ==UserScript==\n// PACKING_PROOF_CONNECT_TARGETS\n// ==/UserScript==\nconst PACKING_PROOF_RECORDERS = [];\nconst PACKING_PROOF_HOST = null;";
+        var devices = new[]
+        {
+            new RecordingDeviceInfo
+            {
+                NodeId = "pc-node",
+                NodeName = "一号电脑录像",
+                DeviceType = "pc",
+                Address = "http://192.168.1.20:5280"
+            },
+            new RecordingDeviceInfo
+            {
+                NodeId = "mobile-node",
+                NodeName = "打包手机一",
+                DeviceType = "mobile",
+                Address = "http://192.168.1.31:5281"
+            }
+        };
+
+        string customized = PrintToolInstallGuide.AddRecordingDevices(script, devices);
+
+        Assert.Contains("\"nodeId\":\"pc-node\"", customized);
+        Assert.Contains("\"nodeId\":\"mobile-node\"", customized);
+        Assert.Contains("\"url\":\"http://192.168.1.20:5280\"", customized);
+        Assert.Contains("\"url\":\"http://192.168.1.31:5281\"", customized);
+        Assert.Contains("// @connect      192.168.1.20", customized);
+        Assert.Contains("// @connect      192.168.1.31", customized);
+        Assert.DoesNotContain("127.0.0.1", customized);
     }
 
     [Fact]

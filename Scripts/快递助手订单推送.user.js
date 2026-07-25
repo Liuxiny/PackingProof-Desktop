@@ -8,8 +8,7 @@
 // @match        *://p4.kuaidizs.cn/*
 // @match        *://kuaidizs.cn/*
 // @match        *://*.kuaidizs.cn/*
-// @connect      localhost
-// @connect      127.0.0.1
+// PACKING_PROOF_CONNECT_TARGETS
 // @grant        GM_xmlhttpRequest
 // @grant        GM_registerMenuCommand
 // @grant        GM_getValue
@@ -26,9 +25,13 @@
     'use strict';
 
     // ============ 配置 ============
-    const DEFAULT_HOST = '127.0.0.1';
+    const PACKING_PROOF_RECORDERS = [];
+    const PACKING_PROOF_HOST = null;
     const DEFAULT_PORT = 5280;
-    const DEFAULT_ADDRESS = `${DEFAULT_HOST}:${DEFAULT_PORT}`;
+    const DEFAULT_HOST = (() => {
+        try { return new URL(PACKING_PROOF_RECORDERS[0]?.url || '').hostname; } catch { return ''; }
+    })();
+    const DEFAULT_ADDRESS = DEFAULT_HOST ? `${DEFAULT_HOST}:${DEFAULT_PORT}` : '';
     const INSTALL_MONITOR_ADDRESSES = [];
     const INSTALL_PRIMARY_MONITOR_ADDRESS = '';
     const MONITOR_ADDRESSES_KEY = 'monitor_addresses';
@@ -250,9 +253,6 @@
             .replace(/\/+$/g, '');
         const parts = value.split(':');
         let normalizedHost = parts[0] || DEFAULT_HOST;
-        if (/^127(?:\.\d{1,3}){3}$/.test(normalizedHost)) {
-            normalizedHost = DEFAULT_HOST;
-        }
         if (!isAllowedMonitorHost(normalizedHost)) {
             normalizedHost = DEFAULT_HOST;
         }
@@ -264,26 +264,24 @@
     }
     function isAllowedMonitorHost(host) {
         const value = String(host || '').trim().toLowerCase();
-        if (value === 'localhost') return true;
-
         const match = value.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
         if (!match) return false;
         const octets = match.slice(1).map(Number);
         if (octets.some(octet => octet < 0 || octet > 255)) return false;
         return octets[0] === 10 ||
             (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
-            (octets[0] === 192 && octets[1] === 168) ||
-            (octets[0] === 169 && octets[1] === 254);
+            (octets[0] === 192 && octets[1] === 168);
     }
     function formatAddress(address) {
         const normalized = normalizeAddress(address.host, address.port);
-        return `${normalized.host}:${normalized.port}`;
+        return normalized.host ? `${normalized.host}:${normalized.port}` : '';
     }
     function normalizeAddressList(values) {
         const result = [];
         for (const value of Array.isArray(values) ? values : []) {
             const address = normalizeAddress(value, DEFAULT_PORT);
             const text = formatAddress(address);
+            if (!text) continue;
             if (!result.includes(text)) result.push(text);
             if (result.length >= MAX_MONITOR_ADDRESSES) break;
         }
@@ -298,9 +296,36 @@
         const legacyHost = GM_getValue('monitor_host', '');
         const legacyPort = GM_getValue('monitor_port', '');
         if (legacyHost || legacyPort) candidates.push(formatAddress(normalizeAddress(legacyHost || DEFAULT_HOST, legacyPort || DEFAULT_PORT)));
+        if (PACKING_PROOF_HOST?.Address || PACKING_PROOF_HOST?.address)
+            candidates.push(PACKING_PROOF_HOST.Address || PACKING_PROOF_HOST.address);
+        candidates.push(...PACKING_PROOF_RECORDERS.map(device => device?.url || ''));
         candidates.push(...INSTALL_MONITOR_ADDRESSES);
-        if (candidates.length === 0) candidates.push(DEFAULT_ADDRESS);
+        if (candidates.length === 0 && DEFAULT_ADDRESS) candidates.push(DEFAULT_ADDRESS);
         return normalizeAddressList(candidates);
+    }
+
+    function getRecorderDevices() {
+        const result = [];
+        const endpoints = new Set();
+        for (const device of PACKING_PROOF_RECORDERS) {
+            const address = normalizeAddress(device?.url || '', DEFAULT_PORT);
+            const text = formatAddress(address);
+            if (!text || endpoints.has(text)) continue;
+            endpoints.add(text);
+            result.push({
+                nodeId: String(device?.nodeId || text),
+                name: String(device?.name || text),
+                type: String(device?.type || 'unknown'),
+                url: `http://${text}`
+            });
+        }
+        if (result.length > 0) return result;
+        return getPairedMonitorAddresses().map(address => ({
+            nodeId: address,
+            name: address,
+            type: 'legacy',
+            url: `http://${address}`
+        }));
     }
     function getMonitorAddressText() {
         const storedAddress = GM_getValue('monitor_address', '');
@@ -389,8 +414,7 @@
             formatAddress(saved),
             ...getPairedMonitorAddresses(),
             ...INSTALL_MONITOR_ADDRESSES,
-            `127.0.0.1:${saved.port}`,
-            `localhost:${saved.port}`
+            PACKING_PROOF_HOST?.Address || PACKING_PROOF_HOST?.address || ''
         ]).map(value => normalizeAddress(value, DEFAULT_PORT));
 
         for (const address of directCandidates) {
@@ -655,8 +679,8 @@
     }
 
     // ============ 推送到上位机 ============
-    function pushOrdersToAddress(addressText, orders) {
-        const address = normalizeAddress(addressText, DEFAULT_PORT);
+    function sendOrderToRecorder(device, orders) {
+        const address = normalizeAddress(device?.url || '', DEFAULT_PORT);
         return new Promise(resolve => {
             GM_xmlhttpRequest({
                 method: 'POST',
@@ -665,13 +689,16 @@
                 data: JSON.stringify(orders),
                 timeout: 5000,
                 onload: res => resolve({
+                    nodeId: device.nodeId,
+                    name: device.name,
+                    type: device.type,
                     address: formatAddress(address),
                     ok: res.status === 200,
                     status: res.status,
                     response: parseJsonResponse(res.responseText)
                 }),
-                onerror: () => resolve({ address: formatAddress(address), ok: false, error: 'connect' }),
-                ontimeout: () => resolve({ address: formatAddress(address), ok: false, error: 'timeout' })
+                onerror: () => resolve({ nodeId: device.nodeId, name: device.name, type: device.type, address: formatAddress(address), ok: false, error: 'connect' }),
+                ontimeout: () => resolve({ nodeId: device.nodeId, name: device.name, type: device.type, address: formatAddress(address), ok: false, error: 'timeout' })
             });
         });
     }
@@ -679,21 +706,36 @@
     async function pushToMonitor(orders, options) {
         options = options || {};
         if (!orders || orders.length === 0) return { ok: false, confirmed: false, error: 'empty' };
-        const addresses = getPairedMonitorAddresses();
-        const results = await Promise.all(addresses.map(address => pushOrdersToAddress(address, orders)));
+        const devices = getRecorderDevices();
+        if (devices.length === 0) return { ok: false, confirmed: false, error: 'no_recorders', results: [] };
+        const settled = await Promise.allSettled(
+            devices.map(device => sendOrderToRecorder(device, orders))
+        );
+        const results = settled.map((entry, index) => entry.status === 'fulfilled'
+            ? entry.value
+            : {
+                nodeId: devices[index].nodeId,
+                name: devices[index].name,
+                type: devices[index].type,
+                address: devices[index].url,
+                ok: false,
+                error: entry.reason?.message || String(entry.reason || 'unknown')
+            });
         const successful = results.filter(result => result.ok);
         const confirmed = !options.isTest || successful.some(result => Number(result.response?.testCount || 0) > 0);
-        debugLog(`[打包监控] 订单广播完成: ${successful.length}/${addresses.length} 台`, results);
+        console.info(`[PackingProof] 订单广播完成: ${successful.length}/${devices.length} 台`, results);
+        results.filter(result => !result.ok).forEach(result =>
+            console.warn(`[PackingProof] ${result.name} (${result.address}) 发送失败: ${result.error || result.status}`));
 
         if (!options.silent) {
             if (successful.length === 0) {
                 showNotification(options.isTest ? '测试发送失败，请检查接收设备地址' : '订单发送失败，请检查接收设备网络');
             } else if (options.isTest) {
                 showNotification(confirmed
-                    ? `已有 ${successful.length}/${addresses.length} 台设备收到测试订单`
-                    : `测试订单已发送至 ${successful.length}/${addresses.length} 台设备`);
+                    ? `已有 ${successful.length}/${devices.length} 台设备收到测试订单`
+                    : `测试订单已发送至 ${successful.length}/${devices.length} 台设备`);
             } else {
-                showNotification(`已向 ${successful.length}/${addresses.length} 台设备推送 ${orders.length} 条订单`);
+                showNotification(`已向 ${successful.length}/${devices.length} 台设备推送 ${orders.length} 条订单`);
             }
         }
 
@@ -701,7 +743,7 @@
             ok: successful.length > 0,
             confirmed,
             successfulCount: successful.length,
-            targetCount: addresses.length,
+            targetCount: devices.length,
             results
         };
     }
@@ -968,7 +1010,7 @@
         }
 
         testOrderSending = true;
-        showNotification(`正在向 ${getMonitorAddressText()} 发送测试订单`);
+        showNotification(`正在向 ${getRecorderDevices().length} 个录像设备发送测试订单`);
         try {
             await pushToMonitor(buildTestOrder(), { isTest: true, skipAddressDiscovery: true });
         } finally {

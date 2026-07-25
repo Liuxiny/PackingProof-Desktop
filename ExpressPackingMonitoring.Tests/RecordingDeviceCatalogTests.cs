@@ -274,6 +274,46 @@ public sealed class RecordingDeviceCatalogTests
         }
     }
 
+    [Fact]
+    public async Task UserscriptEndpointRejectsEmptyRecorderList()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"epm-empty-recorders-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        int port = GetFreeTcpPort();
+        try
+        {
+            using var database = new VideoDatabase(Path.Combine(directory, "videos.db"));
+            using var server = new WebServer(
+                database,
+                port,
+                listenerHost: "127.0.0.1",
+                mobileConnectionUrlProvider: () => $"http://192.168.1.20:{port}",
+                mobileBackupStateDirectory: Path.Combine(directory, "uploads"),
+                mobileBackupRecordingRootResolver: () => Path.Combine(directory, "recordings"),
+                nodeId: Guid.NewGuid().ToString("D"),
+                nodeName: "手机备份主机",
+                deploymentPreset: DeploymentPresets.MobileBackupHost);
+            server.Start();
+
+            using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
+            using HttpResponseMessage response = await client.GetAsync(
+                "/kuaidizs-order-push.user.js",
+                TestContext.Current.CancellationToken);
+            string body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+            using JsonDocument payload = JsonDocument.Parse(body);
+
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+            Assert.Equal(
+                "当前没有发现可接收订单的录像设备",
+                payload.RootElement.GetProperty("error").GetString());
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            try { Directory.Delete(directory, recursive: true); } catch { }
+        }
+    }
+
     private static int GetFreeTcpPort()
     {
         var listener = new TcpListener(IPAddress.Loopback, 0);

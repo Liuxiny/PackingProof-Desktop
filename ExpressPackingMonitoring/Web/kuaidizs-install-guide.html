@@ -19,6 +19,8 @@
     a.secondary,button.secondary{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 16px;border-radius:8px;border:1px solid #ccd6e4;color:#172033;text-decoration:none;font-weight:700;background:#fff}
     code{font-size:18px;background:#eef4ff;border:1px solid #cdddf5;border-radius:8px;padding:10px 12px;display:inline-block;color:#0c4fb3;margin-right:10px}
     .warn{color:#a44800;background:#fff6e8;border:1px solid #f0c98e;border-radius:8px;padding:12px}
+    .devices{margin:18px 0;padding:16px;border:1px solid #cdddf5;border-radius:10px;background:#f5f8ff}
+    .devices ul{margin:10px 0;padding-left:22px;line-height:1.8}
     .hint{font-size:13px;color:#6b7788;margin-top:10px}
     .check{margin:8px 0 0 0;padding-left:20px;color:#39475a;line-height:1.7}
   </style>
@@ -26,8 +28,9 @@
 <body>
 <main>
   <div class="card">
-    <h1>订单备注插件安装向导</h1>
-    <p>安装完成后，快递助手里的买家留言、卖家备注会发送到当前电脑，并写入录像数据库。</p>
+    <h1>PackingProof 快递助手联动安装向导</h1>
+    <p>安装完成后，脚本会读取订单、买家留言、卖家备注、商品和退款信息，并直接发送给所有录像设备。</p>
+    {{deviceSummary}}
     <div class="steps">
       <div class="step">
         <div class="num">1</div>
@@ -73,8 +76,8 @@
       <div class="step">
         <div class="num">4</div>
         <div>
-          <h2>填写本机订单接收地址</h2>
-          <p>程序已尝试把这个地址复制到剪贴板。脚本里要求填写地址时，直接粘贴即可。</p>
+          <h2>确认录像设备地址</h2>
+          <p>以下地址已写入脚本；设备列表变化后，请从桌面程序重新生成快递助手脚本。</p>
           <code id="addr">{{address}}</code>
           <button onclick="copyText(document.getElementById('addr').textContent,'已复制本机订单接收地址')">复制地址</button>
           <div class="hint">如果这里为空，请先回到程序确认本机服务已正常启动。</div>
@@ -84,8 +87,8 @@
         <div class="num">5</div>
         <div>
           <h2>发送测试订单</h2>
-          <p>安装后打开 Tampermonkey 菜单，点击“发送测试订单”，用于确认当前电脑能否收到订单备注。</p>
-          <div class="hint">收到后，程序会把测试订单写入本机录像数据库。</div>
+          <p>安装后打开 Tampermonkey 菜单，点击“发送测试订单”，脚本会分别测试所有录像设备。</p>
+          <div class="hint">结果会显示成功和失败设备数量；单台设备离线不会阻止其他设备接收。</div>
         </div>
       </div>
       <div class="step">

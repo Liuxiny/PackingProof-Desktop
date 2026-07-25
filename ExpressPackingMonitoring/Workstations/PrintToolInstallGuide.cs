@@ -19,15 +19,26 @@ internal static class PrintToolInstallGuide
         string guidePath = Path.Combine(guideDir, TemplateFileName);
         string sourceScriptPath = ResolveUserscriptPath();
         string scriptPath = Path.Combine(guideDir, ScriptFileName);
-        if (File.Exists(sourceScriptPath))
+        AppConfig config = WorkstationConfigStore.Load();
+        string hostAddress = RecordingDeviceCatalog.NormalizeLanHttpAddress(monitorAddress, config.WebServerPort);
+        if (hostAddress.Length == 0)
+            hostAddress = $"http://{WorkstationNetwork.GetBestLocalAccessAddress(config.WebServerPort)}";
+        var receivers = new MobileOrderReceiverRegistry();
+        IReadOnlyList<RecordingDeviceInfo> devices = RecordingDeviceCatalog.Build(
+            config.DeploymentPreset,
+            config.NodeId,
+            config.NodeName,
+            config.WebServerPort,
+            hostAddress,
+            receivers.GetRecordingDevices(),
+            connectedClients: null);
+        if (File.Exists(sourceScriptPath) && devices.Count > 0)
         {
             string script = File.ReadAllText(sourceScriptPath, Encoding.UTF8);
-            IEnumerable<string> addresses = new[] { monitorAddress }
-                .Concat(MobileOrderReceiverRegistry.GetDefaultAuthorities());
-            File.WriteAllText(scriptPath, AddMonitorConnectPermissions(script, addresses), Encoding.UTF8);
+            File.WriteAllText(scriptPath, AddRecordingDevices(script, devices), Encoding.UTF8);
         }
-        string scriptUrl = File.Exists(scriptPath) ? new Uri(scriptPath).AbsoluteUri : "";
-        string html = Render(monitorAddress, BuildScriptLink(scriptUrl));
+        string scriptUrl = devices.Count > 0 && File.Exists(scriptPath) ? new Uri(scriptPath).AbsoluteUri : "";
+        string html = RenderForWeb(devices, scriptUrl);
         File.WriteAllText(guidePath, html, Encoding.UTF8);
         return guidePath;
     }
@@ -35,6 +46,27 @@ internal static class PrintToolInstallGuide
     public static string RenderForWeb(string monitorAddress, string scriptUrl)
     {
         return Render(monitorAddress, BuildScriptLink(scriptUrl));
+    }
+
+    public static string RenderForWeb(IReadOnlyList<RecordingDeviceInfo> devices, string scriptUrl)
+    {
+        string deviceSummary = devices.Count == 0
+            ? "<div class=\"warn\">当前没有发现可接收订单的录像设备。请检查录像设备连接后重新搜索或重新生成脚本。</div>"
+            : $"""
+<div class="devices">
+  <strong>找到 {devices.Count} 个录像设备</strong>
+  <ul>{string.Join("", devices.Select(device =>
+      $"<li>{WebUtility.HtmlEncode(device.NodeName)}（{WebUtility.HtmlEncode(device.DeviceType)}）：{WebUtility.HtmlEncode(new Uri(device.Address).Authority)}</li>"))}</ul>
+  <p>脚本会把订单发送给以上所有录像设备，每台设备独立处理成功或失败。</p>
+</div>
+""";
+        string template = LoadTemplate();
+        return template
+            .Replace("{{scriptLink}}", devices.Count == 0 ? "" : BuildScriptLink(scriptUrl), StringComparison.Ordinal)
+            .Replace("{{address}}", devices.Count == 0
+                ? ""
+                : WebUtility.HtmlEncode(string.Join("、", devices.Select(device => new Uri(device.Address).Authority))), StringComparison.Ordinal)
+            .Replace("{{deviceSummary}}", deviceSummary, StringComparison.Ordinal);
     }
 
     public static string ResolveUserscriptPath()
@@ -88,6 +120,68 @@ internal static class PrintToolInstallGuide
         return customized;
     }
 
+    internal static string AddRecordingDevices(
+        string script,
+        IEnumerable<RecordingDeviceInfo> recordingDevices,
+        PackingProofNodeInfo? host = null)
+    {
+        if (string.IsNullOrWhiteSpace(script))
+            return script;
+
+        RecordingDeviceInfo[] devices = (recordingDevices ?? [])
+            .Where(device => device != null)
+            .GroupBy(device => device.Address, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToArray();
+        if (devices.Length == 0)
+            return script;
+
+        var payload = devices.Select(device => new
+        {
+            nodeId = device.NodeId,
+            name = device.NodeName,
+            type = device.DeviceType,
+            url = device.Address
+        });
+        string customized = script.Replace(
+            "const PACKING_PROOF_RECORDERS = [];",
+            $"const PACKING_PROOF_RECORDERS = {JsonSerializer.Serialize(payload)};",
+            StringComparison.Ordinal);
+        customized = customized.Replace(
+            "const PACKING_PROOF_HOST = null;",
+            $"const PACKING_PROOF_HOST = {JsonSerializer.Serialize(host == null ? null : new { host.NodeId, host.NodeName, host.Address })};",
+            StringComparison.Ordinal);
+
+        List<Uri> addresses = NormalizeMonitorAddresses(devices.Select(device => device.Address));
+        customized = AddExactConnectPermissions(customized, addresses.Select(uri => uri.Host));
+        return customized;
+    }
+
+    private static string AddExactConnectPermissions(string script, IEnumerable<string> hosts)
+    {
+        string newline = script.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+        const string dynamicMarker = "// PACKING_PROOF_CONNECT_TARGETS";
+        int markerIndex = script.IndexOf(dynamicMarker, StringComparison.Ordinal);
+        if (markerIndex < 0)
+        {
+            const string legacyMarker = "// @connect      localhost";
+            markerIndex = script.IndexOf(legacyMarker, StringComparison.Ordinal);
+        }
+        if (markerIndex < 0)
+            return script;
+
+        int lineEnd = script.IndexOf('\n', markerIndex);
+        int insertIndex = lineEnd < 0 ? script.Length : lineEnd + 1;
+        string prefix = lineEnd < 0 ? newline : "";
+        foreach (string host in hosts.Distinct(StringComparer.OrdinalIgnoreCase).Reverse())
+        {
+            string directive = $"// @connect      {host}";
+            if (!script.Contains(directive, StringComparison.Ordinal))
+                script = script.Insert(insertIndex, prefix + directive + newline);
+        }
+        return script;
+    }
+
     internal static List<Uri> NormalizeMonitorAddresses(IEnumerable<string>? monitorAddresses)
     {
         var result = new List<Uri>();
@@ -123,11 +217,9 @@ internal static class PrintToolInstallGuide
             return false;
 
         byte[] bytes = address.GetAddressBytes();
-        return bytes[0] == 127
-            || bytes[0] == 10
+        return bytes[0] == 10
             || (bytes[0] == 172 && bytes[1] is >= 16 and <= 31)
-            || (bytes[0] == 192 && bytes[1] == 168)
-            || (bytes[0] == 169 && bytes[1] == 254);
+            || (bytes[0] == 192 && bytes[1] == 168);
     }
 
     private static string Render(string monitorAddress, string scriptLink)
@@ -135,7 +227,8 @@ internal static class PrintToolInstallGuide
         string template = LoadTemplate();
         return template
             .Replace("{{scriptLink}}", scriptLink, StringComparison.Ordinal)
-            .Replace("{{address}}", WebUtility.HtmlEncode(monitorAddress), StringComparison.Ordinal);
+            .Replace("{{address}}", WebUtility.HtmlEncode(monitorAddress), StringComparison.Ordinal)
+            .Replace("{{deviceSummary}}", "", StringComparison.Ordinal);
     }
 
     private static string LoadTemplate()
