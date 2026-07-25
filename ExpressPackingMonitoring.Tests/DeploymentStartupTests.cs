@@ -116,6 +116,22 @@ public sealed class DeploymentStartupTests
         Assert.True(completion > validation);
     }
 
+    [Fact]
+    public void RecordingHostWindowExposesNodeAndUserscriptStatus()
+    {
+        string xaml = ReadRepositoryFile("ExpressPackingMonitoring", "UI", "MainWindow.xaml");
+        string source = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "ViewModels",
+            "MainViewModel.cs");
+
+        Assert.Contains("x:Name=\"BtnInstallUserscript\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Config.NodeName", source, StringComparison.Ordinal);
+        Assert.Contains("_webServer.GetRecordingDevices(verifiedAddress)", source, StringComparison.Ordinal);
+        Assert.Contains("public void OpenUserscriptGuide()", source, StringComparison.Ordinal);
+        Assert.Contains("/kuaidizs-install-guide", source, StringComparison.Ordinal);
+    }
+
     private static string ReadRepositoryFile(params string[] parts)
     {
         DirectoryInfo? directory = new(AppContext.BaseDirectory);

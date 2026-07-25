@@ -6,6 +6,7 @@ using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace ExpressPackingMonitoring;
 
@@ -24,6 +25,7 @@ public partial class PrintWorkstationWindow : Window
     private readonly NoCameraWorkstationHost _host;
     private readonly CancellationTokenSource _lifetimeCts = new();
     private readonly WindowCloseBehaviorController _closeBehaviorController;
+    private readonly DispatcherTimer _deviceRefreshTimer;
     private StatisticsWindow? _statisticsWindow;
     private PlaybackWindow? _playbackWindow;
     private bool _loaded;
@@ -44,11 +46,14 @@ public partial class PrintWorkstationWindow : Window
             this,
             RequestExitFromTray,
             enableCloseBehaviorPrompt);
+        _deviceRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        _deviceRefreshTimer.Tick += (_, _) => RefreshDeviceSummary();
         Loaded += Window_Loaded;
         Closing += Window_Closing;
         Closed += (_, _) =>
         {
             _closeBehaviorController.Dispose();
+            _deviceRefreshTimer.Stop();
             _lifetimeCts.Cancel();
             _host.Dispose();
             _lifetimeCts.Dispose();
@@ -93,6 +98,28 @@ public partial class PrintWorkstationWindow : Window
                 requestLanAccess: _requestLanAccessOnStartup,
                 cancellationToken: _lifetimeCts.Token);
             RefreshServiceDisplay();
+            _deviceRefreshTimer.Start();
+            if (_host.IsLanAvailable && !_config.FirstUseWizardCompleted)
+            {
+                if (WorkstationConfigStore.TryUpdate(
+                        config =>
+                        {
+                            config.DeploymentPreset = DeploymentPresets.MobileBackupHost;
+                            config.DeploymentSchemaVersion = DeploymentPresets.CurrentSchemaVersion;
+                            config.WorkstationRole = WorkstationRoles.PrintStation;
+                            config.EnableWebServer = true;
+                            config.FirstUseWizardCompleted = true;
+                        },
+                        out AppConfig savedConfig,
+                        out _))
+                {
+                    _config.DeploymentPreset = savedConfig.DeploymentPreset;
+                    _config.DeploymentSchemaVersion = savedConfig.DeploymentSchemaVersion;
+                    _config.WorkstationRole = savedConfig.WorkstationRole;
+                    _config.EnableWebServer = savedConfig.EnableWebServer;
+                    _config.FirstUseWizardCompleted = savedConfig.FirstUseWizardCompleted;
+                }
+            }
             if (_openPlaybackOnStartup)
                 OpenLocalPlayback();
         }
@@ -110,6 +137,10 @@ public partial class PrintWorkstationWindow : Window
 
     private void RefreshServiceDisplay()
     {
+        StoragePathTextBlock.Text = string.IsNullOrWhiteSpace(_host.StoragePath)
+            ? "手机录像存储：暂不可用"
+            : $"手机录像存储：{_host.StoragePath}";
+        RefreshDeviceSummary();
         if (_host.IsLanAvailable)
         {
             LanAddressTextBlock.Text = _host.LanAccessUrl;
@@ -265,6 +296,12 @@ public partial class PrintWorkstationWindow : Window
         }
     }
 
+    private void RefreshDeviceSummary()
+    {
+        RecorderCountTextBlock.Text = $"当前录像设备：{_host.GetRecordingDevices().Count}";
+        ConnectedPhoneCountTextBlock.Text = $"已连接手机：{_host.GetConnectedMobileCount()}";
+    }
+
     private async void RepairLan_Click(object sender, RoutedEventArgs e)
     {
         RepairLanButton.IsEnabled = false;
@@ -386,10 +423,22 @@ public partial class PrintWorkstationWindow : Window
 
     private void InstallTool_Click(object sender, RoutedEventArgs e)
     {
-        string guidePath = PrintToolInstallGuide.CreateLocalGuide(LocalOrderAddress);
-        try { Clipboard.SetDataObject(LocalOrderAddress, true); } catch { }
-        WorkstationNetwork.OpenUrl(new Uri(guidePath).AbsoluteUri);
-        SetStatus("已打开订单插件安装向导", "已复制本机接收地址，按向导完成安装即可", StatusVisual.Success);
+        if (!_host.IsLanAvailable)
+        {
+            SetStatus(
+                "局域网服务尚未就绪",
+                "请先修复局域网服务，再生成包含全部录像设备地址的快递助手脚本",
+                StatusVisual.Error);
+            return;
+        }
+
+        string url = $"{_host.LanAccessUrl.TrimEnd('/')}/kuaidizs-install-guide?refresh={DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
+        if (!WorkstationNetwork.TryOpenUrl(url, out string error))
+        {
+            SetStatus("打开快递助手联动安装向导失败", error, StatusVisual.Error);
+            return;
+        }
+        SetStatus("已打开快递助手联动安装向导", "脚本会重新获取并写入全部录像设备", StatusVisual.Success);
     }
 
     private async void TestReceive_Click(object sender, RoutedEventArgs e)

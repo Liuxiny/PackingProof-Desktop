@@ -82,13 +82,14 @@ try {
                 Priority = 1
             })
             Language = "zh-Hans"
+            WindowCloseBehavior = "Exit"
         } | ConvertTo-Json -Depth 4
         [System.IO.File]::WriteAllText(
             (Join-Path $wpfAppDataRoot "config.json"),
             $noCameraConfig,
             [System.Text.UTF8Encoding]::new($false))
 
-        $wpfProcess = Start-Process -FilePath $appExecutable -ArgumentList @("--temporary-role", "PrintStation") -PassThru -WindowStyle Hidden
+        $wpfProcess = Start-Process -FilePath $appExecutable -ArgumentList @("--print-station") -PassThru -WindowStyle Hidden
         $deadline = [DateTime]::UtcNow.AddSeconds(15)
         do {
             Start-Sleep -Milliseconds 200
@@ -96,7 +97,7 @@ try {
             if ($wpfProcess.HasExited) { throw "The isolated WPF process exited before showing its main window." }
         } while ($wpfProcess.MainWindowHandle -eq 0 -and [DateTime]::UtcNow -lt $deadline)
         if ($wpfProcess.MainWindowHandle -eq 0) { throw "The isolated WPF main window did not appear." }
-        if ($wpfProcess.MainWindowTitle -ne "手机录像备份") {
+        if ($wpfProcess.MainWindowTitle -ne "PackingProof 手机备份主机") {
             throw "Unexpected WPF window title: $($wpfProcess.MainWindowTitle)"
         }
         Wait-ForWebServer -Url "http://127.0.0.1:$noCameraPort/"
@@ -118,7 +119,7 @@ try {
             [System.Text.UTF8Encoding]::new($false))
 
         $env:EPM_INSTANCE_SCOPE = "automation-camera$PID"
-        $wpfProcess = Start-Process -FilePath $appExecutable -ArgumentList @("--temporary-role", "CameraMonitor") -PassThru -WindowStyle Hidden
+        $wpfProcess = Start-Process -FilePath $appExecutable -ArgumentList @("--monitor") -PassThru -WindowStyle Hidden
         $deadline = [DateTime]::UtcNow.AddSeconds(15)
         do {
             Start-Sleep -Milliseconds 200

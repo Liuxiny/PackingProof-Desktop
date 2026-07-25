@@ -126,6 +126,7 @@ namespace ExpressPackingMonitoring.UI
             BtnMobileConnection.PreviewMouseLeftButtonUp += BtnMobileConnection_PreviewMouseLeftButtonUp;
             BtnSwitchWorkstation.Click += BtnSwitchWorkstation_Click;
             BtnSwitchWorkstation.PreviewMouseLeftButtonUp += BtnSwitchWorkstation_PreviewMouseLeftButtonUp;
+            BtnInstallUserscript.Click += BtnInstallUserscript_Click;
             _capsCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             _capsCheckTimer.Tick += (s, e) =>
             {
@@ -521,6 +522,13 @@ namespace ExpressPackingMonitoring.UI
                     _ = FinishShutdownAsync(vm);
                 }
             }), DispatcherPriority.Background);
+        }
+
+        private void BtnInstallUserscript_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is MainViewModel viewModel)
+                viewModel.OpenUserscriptGuide();
+            e.Handled = true;
         }
 
         private void RequestExitFromTray()

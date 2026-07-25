@@ -39,6 +39,53 @@ public sealed class NoCameraWorkstationTests
     }
 
     [Fact]
+    public void MobileBackupWindowUsesHostCopyAndLanUserscriptGuide()
+    {
+        string xaml = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "Workstations",
+            "PrintWorkstationWindow.xaml");
+        string source = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "Workstations",
+            "PrintWorkstationWindow.xaml.cs");
+
+        Assert.Contains("PackingProof 手机备份主机", xaml, StringComparison.Ordinal);
+        Assert.Contains("手机配对", xaml, StringComparison.Ordinal);
+        Assert.Contains("当前录像设备：0", xaml, StringComparison.Ordinal);
+        Assert.Contains("已连接手机：0", xaml, StringComparison.Ordinal);
+        Assert.Contains("手机录像存储：正在检查", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("打印工位", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("我没有电脑摄像头", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("打印端", xaml, StringComparison.Ordinal);
+        Assert.Contains("if (!_host.IsLanAvailable)", source, StringComparison.Ordinal);
+        Assert.Contains("_host.LanAccessUrl.TrimEnd", source, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "PrintToolInstallGuide.CreateLocalGuide(LocalOrderAddress)",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MobileBackupPresetIsSavedOnlyAfterLanServiceStarts()
+    {
+        string source = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "Workstations",
+            "PrintWorkstationWindow.xaml.cs");
+
+        int lanReady = source.IndexOf(
+            "if (_host.IsLanAvailable && !_config.FirstUseWizardCompleted)",
+            StringComparison.Ordinal);
+        int presetSaved = source.IndexOf(
+            "config.DeploymentPreset = DeploymentPresets.MobileBackupHost",
+            StringComparison.Ordinal);
+
+        Assert.True(lanReady >= 0);
+        Assert.True(presetSaved > lanReady);
+    }
+
+    [Fact]
     public void SettingsCapabilitiesAreDerivedFromDeploymentPreset()
     {
         SettingsCapabilities noCamera = SettingsCapabilities.ForPreset(DeploymentPresets.MobileBackupHost);
@@ -256,5 +303,19 @@ public sealed class NoCameraWorkstationTests
     private static void DeleteTempDirectory(string path)
     {
         try { Directory.Delete(path, recursive: true); } catch { }
+    }
+
+    private static string ReadRepositoryFile(params string[] parts)
+    {
+        DirectoryInfo? directory = new(AppContext.BaseDirectory);
+        while (directory != null)
+        {
+            string path = Path.Combine([directory.FullName, .. parts]);
+            if (File.Exists(path))
+                return File.ReadAllText(path);
+            directory = directory.Parent;
+        }
+
+        throw new FileNotFoundException(string.Join(Path.DirectorySeparatorChar, parts));
     }
 }

@@ -544,6 +544,18 @@
   <data name="使用电脑摄像头、麦克风和扫码功能录制打包过程。本机会成为 PackingProof 主机，也可以接收手机录像" xml:space="preserve"><value>使用电脑摄像头、麦克风和扫码功能录制打包过程。本机会成为 PackingProof 主机，也可以接收手机录像</value></data>
   <data name="不在本机录制或保存视频，连接局域网中的 PackingProof 主机查看录像，也可以安装快递助手联动脚本" xml:space="preserve"><value>不在本机录制或保存视频，连接局域网中的 PackingProof 主机查看录像，也可以安装快递助手联动脚本</value></data>
   <data name="不使用电脑摄像头，手机录像备份到这台电脑。本机会成为 PackingProof 主机" xml:space="preserve"><value>不使用电脑摄像头，手机录像备份到这台电脑。本机会成为 PackingProof 主机</value></data>
+  <data name="安装或重新生成快递助手联动脚本" xml:space="preserve"><value>安装或重新生成快递助手联动脚本</value></data>
+  <data name="快递助手联动" xml:space="preserve"><value>快递助手联动</value></data>
+  <data name="PackingProof 手机备份主机" xml:space="preserve"><value>PackingProof 手机备份主机</value></data>
+  <data name="手机备份主机" xml:space="preserve"><value>手机备份主机</value></data>
+  <data name="本机保存手机录像并提供局域网回放，不初始化电脑摄像头、麦克风或扫码设备" xml:space="preserve"><value>本机保存手机录像并提供局域网回放，不初始化电脑摄像头、麦克风或扫码设备</value></data>
+  <data name="更改部署场景" xml:space="preserve"><value>更改部署场景</value></data>
+  <data name="手机配对" xml:space="preserve"><value>手机配对</value></data>
+  <data name="当前录像设备：0" xml:space="preserve"><value>当前录像设备：0</value></data>
+  <data name="已连接手机：0" xml:space="preserve"><value>已连接手机：0</value></data>
+  <data name="手机录像存储：正在检查" xml:space="preserve"><value>手机录像存储：正在检查</value></data>
+  <data name="脚本会从主机读取录像设备列表，并把订单直接发送给所有在线录像设备" xml:space="preserve"><value>脚本会从主机读取录像设备列表，并把订单直接发送给所有在线录像设备</value></data>
+  <data name="局域网服务尚未就绪，暂时无法生成快递助手脚本" xml:space="preserve"><value>局域网服务尚未就绪，暂时无法生成快递助手脚本</value></data>
   <data name="RestartMode.Message" xml:space="preserve"><value>录像方式已保存，需要重启程序后生效&#xA;&#xA;现在重启吗？</value></data>
   <data name="立即重启" xml:space="preserve"><value>立即重启</value></data>
   <data name="关闭窗口" xml:space="preserve"><value>关闭窗口</value></data>

@@ -2472,7 +2472,8 @@ namespace ExpressPackingMonitoring.ViewModels
                 return;
 
             MonitorAccessAddress = verifiedAddress;
-            WorkstationPrintStatusText = "手机备份服务：等待连接";
+            int recorderCount = _webServer.GetRecordingDevices(verifiedAddress).Count;
+            WorkstationPrintStatusText = $"{Config.NodeName} · {verifiedAddress} · 录像设备 {recorderCount}";
             WorkstationStatusToolTip = Config.RequireWebAccessKey
                 ? "访问保护已开启。请点击手机/电脑连接查看二维码或复制完整访问链接，再发送到需要查看录像的设备。"
                 : $"其他电脑在浏览器输入 http://{MonitorAccessAddress}，即可搜索、下载和播放视频。若打不开，请确认两台电脑在同一局域网，并检查防火墙。";
@@ -3221,6 +3222,19 @@ namespace ExpressPackingMonitoring.ViewModels
             {
                 RuntimeLog.Error("Camera", "NewFrame conversion failed", ex);
             }
+        }
+
+        public void OpenUserscriptGuide()
+        {
+            if (_webServer == null || string.IsNullOrWhiteSpace(MonitorAccessAddress))
+            {
+                ShowToast("局域网服务尚未就绪，暂时无法生成快递助手脚本");
+                return;
+            }
+
+            string url = $"http://{MonitorAccessAddress}/kuaidizs-install-guide?refresh={DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
+            if (!WorkstationNetwork.TryOpenUrl(url, out string error))
+                ShowToast($"打开快递助手联动安装向导失败：{error}");
         }
 
         private Mat BitmapToMat(Bitmap bitmap)

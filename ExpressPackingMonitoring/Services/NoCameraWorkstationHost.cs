@@ -34,6 +34,31 @@ internal sealed class NoCameraWorkstationHost : IDisposable
     public VideoDatabase Database =>
         _database ?? throw new InvalidOperationException("录像数据库尚未打开");
 
+    public IReadOnlyList<RecordingDeviceInfo> GetRecordingDevices()
+    {
+        if (_server == null)
+            return Array.Empty<RecordingDeviceInfo>();
+        string authority = "";
+        string accessUrl = IsLanAvailable ? LanAccessUrl : LocalPlaybackUrl;
+        if (Uri.TryCreate(accessUrl, UriKind.Absolute, out Uri? uri))
+            authority = uri.Authority;
+        return _server.GetRecordingDevices(authority);
+    }
+
+    public int GetConnectedMobileCount()
+    {
+        if (_server == null)
+            return 0;
+        return _server.GetConnectedClients()
+            .Where(client => string.Equals(client.ClientType, "mobile-app", StringComparison.Ordinal)
+                || string.Equals(client.DeviceType, "mobile", StringComparison.Ordinal))
+            .Select(client => string.IsNullOrWhiteSpace(client.NodeId)
+                ? client.RemoteAddress
+                : client.NodeId)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+    }
+
     public void UpdateConfig(AppConfig config)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
