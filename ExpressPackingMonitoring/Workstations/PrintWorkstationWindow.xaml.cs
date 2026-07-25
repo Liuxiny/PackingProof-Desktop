@@ -480,6 +480,9 @@ public partial class PrintWorkstationWindow : Window
                     config.WorkstationRole = window.SelectedPreset == DeploymentPresets.RecordingHost
                         ? WorkstationRoles.CameraMonitor
                         : "";
+                    config.EnableWebServer = DeploymentCapabilities
+                        .ForPreset(window.SelectedPreset)
+                        .CanRunWebServer;
                 },
                 out AppConfig savedConfig,
                 out string error))
@@ -490,6 +493,7 @@ public partial class PrintWorkstationWindow : Window
 
         _config.DeploymentPreset = savedConfig.DeploymentPreset;
         _config.WorkstationRole = savedConfig.WorkstationRole;
+        _config.EnableWebServer = savedConfig.EnableWebServer;
         WorkstationNetwork.AskRestart(this);
     }
 }

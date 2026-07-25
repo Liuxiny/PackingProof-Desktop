@@ -589,4 +589,6 @@
   <data name="录像回放" xml:space="preserve"><value>Recording playback</value></data>
   <data name="记录局域网服务和手机备份的详细信息" xml:space="preserve"><value>Record detailed LAN service and phone backup information</value></data>
   <data name="暂不可用" xml:space="preserve"><value>Temporarily unavailable</value></data>
+  <data name="手机连接服务启用失败，请检查配置文件权限" xml:space="preserve"><value>Unable to enable the phone connection service. Check configuration file permissions</value></data>
+  <data name="正在启动手机连接服务..." xml:space="preserve"><value>Starting the phone connection service...</value></data>
 </root>

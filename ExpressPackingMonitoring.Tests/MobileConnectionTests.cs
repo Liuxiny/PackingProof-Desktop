@@ -4,6 +4,7 @@ using System.Text.Json;
 using ExpressPackingMonitoring.Config;
 using ExpressPackingMonitoring.Data;
 using ExpressPackingMonitoring.Services;
+using ExpressPackingMonitoring.ViewModels;
 using ZXing;
 using Xunit;
 
@@ -11,6 +12,21 @@ namespace ExpressPackingMonitoring.Tests;
 
 public sealed class MobileConnectionTests
 {
+    [Fact]
+    public void RecordingHostMobileConnectionRepairsDisabledWebServer()
+    {
+        Assert.True(MainViewModel.ShouldEnableWebServerForMobileConnection(new AppConfig
+        {
+            DeploymentPreset = DeploymentPresets.RecordingHost,
+            EnableWebServer = false
+        }));
+        Assert.False(MainViewModel.ShouldEnableWebServerForMobileConnection(new AppConfig
+        {
+            DeploymentPreset = DeploymentPresets.ViewerClient,
+            EnableWebServer = false
+        }));
+    }
+
     [Theory]
     [InlineData(false, "", "http://192.168.1.20:5280")]
     [InlineData(false, "abc 123", "http://192.168.1.20:5280/?key=abc%20123")]

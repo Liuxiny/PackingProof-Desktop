@@ -2578,8 +2578,23 @@ namespace ExpressPackingMonitoring.ViewModels
                 : "";
         }
 
-        public void ShowMobileConnection(System.Windows.Window owner = null)
+        public async void ShowMobileConnection(System.Windows.Window owner = null)
         {
+            if (ShouldEnableWebServerForMobileConnection(Config))
+            {
+                Config.EnableWebServer = true;
+                if (!SaveConfig(notifyUser: false))
+                {
+                    Config.EnableWebServer = false;
+                    ShowToast("手机连接服务启用失败，请检查配置文件权限");
+                }
+                else
+                {
+                    ShowToast("正在启动手机连接服务...");
+                    await RestartWebServerAsync(allowAccessSetup: true);
+                }
+            }
+
             string unavailableMessage = GetMobileConnectionUnavailableMessage();
             string url = "";
             if (string.IsNullOrEmpty(unavailableMessage))
@@ -2609,6 +2624,14 @@ namespace ExpressPackingMonitoring.ViewModels
             if (dialog.OpenSettingsRequested && owner is not SettingsWindow)
                 OpenSettings();
         }
+
+        internal static bool ShouldEnableWebServerForMobileConnection(AppConfig config) =>
+            config != null
+            && !config.EnableWebServer
+            && string.Equals(
+                config.DeploymentPreset,
+                DeploymentPresets.RecordingHost,
+                StringComparison.OrdinalIgnoreCase);
 
         public void CopyMobileConnectionUrl()
         {
@@ -2708,14 +2731,19 @@ namespace ExpressPackingMonitoring.ViewModels
 
                 string previousPreset = Config.DeploymentPreset;
                 string previousRole = Config.WorkstationRole;
+                bool previousEnableWebServer = Config.EnableWebServer;
                 Config.DeploymentPreset = selector.SelectedPreset;
                 Config.WorkstationRole = selector.SelectedPreset == DeploymentPresets.MobileBackupHost
                     ? WorkstationRoles.PrintStation
                     : "";
+                Config.EnableWebServer = DeploymentCapabilities
+                    .ForPreset(selector.SelectedPreset)
+                    .CanRunWebServer;
                 if (!SaveConfig(notifyUser: true))
                 {
                     Config.DeploymentPreset = previousPreset;
                     Config.WorkstationRole = previousRole;
+                    Config.EnableWebServer = previousEnableWebServer;
                     return;
                 }
                 WorkstationNetwork.AskRestart(Application.Current?.MainWindow);
