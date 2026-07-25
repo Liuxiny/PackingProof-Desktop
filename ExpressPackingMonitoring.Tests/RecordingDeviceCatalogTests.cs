@@ -1,0 +1,285 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Net.Sockets;
+using System.Text.Json;
+using ExpressPackingMonitoring.Config;
+using ExpressPackingMonitoring.Data;
+using ExpressPackingMonitoring.Services;
+using Microsoft.Data.Sqlite;
+using Xunit;
+
+namespace ExpressPackingMonitoring.Tests;
+
+public sealed class RecordingDeviceCatalogTests
+{
+    private static readonly string[] RecorderCapabilities =
+    [
+        PackingProofCapabilities.Recording,
+        PackingProofCapabilities.OrderReceiver
+    ];
+
+    [Fact]
+    public void RecordingHostAndOnlineMobileRecorderAreIncluded()
+    {
+        string hostNodeId = Guid.NewGuid().ToString("D");
+        string mobileNodeId = Guid.NewGuid().ToString("D");
+
+        IReadOnlyList<RecordingDeviceInfo> devices = RecordingDeviceCatalog.Build(
+            DeploymentPresets.RecordingHost,
+            hostNodeId,
+            "一号电脑录像",
+            5280,
+            "http://192.168.1.20:5280",
+            [new MobileOrderReceiverInfo(
+                mobileNodeId,
+                "打包手机一",
+                "192.168.1.31",
+                5281,
+                RecorderCapabilities,
+                Online: true)],
+            connectedClients: null);
+
+        Assert.Equal(2, devices.Count);
+        RecordingDeviceInfo host = Assert.Single(devices, device => device.NodeId == hostNodeId);
+        Assert.Equal("pc", host.DeviceType);
+        Assert.Equal("http://192.168.1.20:5280", host.Address);
+        Assert.Contains(PackingProofCapabilities.Recording, host.Capabilities);
+        Assert.Contains(PackingProofCapabilities.OrderReceiver, host.Capabilities);
+
+        RecordingDeviceInfo mobile = Assert.Single(devices, device => device.NodeId == mobileNodeId);
+        Assert.Equal("mobile", mobile.DeviceType);
+        Assert.Equal("http://192.168.1.31:5281", mobile.Address);
+    }
+
+    [Fact]
+    public void ViewerAndOrdinaryMobileBackupHostAreNotRecordingDevices()
+    {
+        foreach (string preset in new[]
+                 {
+                     DeploymentPresets.ViewerClient,
+                     DeploymentPresets.MobileBackupHost
+                 })
+        {
+            IReadOnlyList<RecordingDeviceInfo> devices = RecordingDeviceCatalog.Build(
+                preset,
+                Guid.NewGuid().ToString("D"),
+                "非录像主机",
+                5280,
+                "http://192.168.1.20:5280",
+                mobileOrderReceivers: null,
+                connectedClients: null);
+
+            Assert.Empty(devices);
+        }
+    }
+
+    [Fact]
+    public void CatalogRequiresBothCapabilitiesAndDeduplicatesNodeAndEndpoint()
+    {
+        string sharedNodeId = Guid.NewGuid().ToString("D");
+        var candidates = new[]
+        {
+            new MobileOrderReceiverInfo(
+                sharedNodeId,
+                "打包手机一",
+                "192.168.1.31",
+                5281,
+                RecorderCapabilities,
+                Online: true),
+            new MobileOrderReceiverInfo(
+                sharedNodeId,
+                "重复节点",
+                "192.168.1.32",
+                5281,
+                RecorderCapabilities,
+                Online: true),
+            new MobileOrderReceiverInfo(
+                Guid.NewGuid().ToString("D"),
+                "重复地址",
+                "192.168.1.31",
+                5281,
+                RecorderCapabilities,
+                Online: true),
+            new MobileOrderReceiverInfo(
+                Guid.NewGuid().ToString("D"),
+                "缺少订单能力",
+                "192.168.1.33",
+                5281,
+                [PackingProofCapabilities.Recording],
+                Online: true),
+            new MobileOrderReceiverInfo(
+                Guid.NewGuid().ToString("D"),
+                "离线设备",
+                "192.168.1.34",
+                5281,
+                RecorderCapabilities,
+                Online: false)
+        };
+
+        IReadOnlyList<RecordingDeviceInfo> devices = RecordingDeviceCatalog.Build(
+            DeploymentPresets.MobileBackupHost,
+            Guid.NewGuid().ToString("D"),
+            "手机备份主机",
+            5280,
+            "http://192.168.1.20:5280",
+            candidates,
+            connectedClients: null);
+
+        RecordingDeviceInfo device = Assert.Single(devices);
+        Assert.Equal(sharedNodeId, device.NodeId);
+    }
+
+    [Fact]
+    public void CapableMobileHeartbeatIsIncludedButViewerHeartbeatIsExcluded()
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        string mobileNodeId = Guid.NewGuid().ToString("D");
+        var clients = new[]
+        {
+            new ConnectedClientInfo(
+                "mobile-client-001",
+                "mobile-app",
+                "打包手机一",
+                "192.168.1.31",
+                now,
+                mobileNodeId,
+                "mobile",
+                5281,
+                RecorderCapabilities),
+            new ConnectedClientInfo(
+                "viewer-client-001",
+                "web-desktop",
+                "查看客户端",
+                "192.168.1.32",
+                now,
+                Guid.NewGuid().ToString("D"),
+                "pc",
+                5280,
+                RecorderCapabilities)
+        };
+
+        IReadOnlyList<RecordingDeviceInfo> devices = RecordingDeviceCatalog.Build(
+            DeploymentPresets.MobileBackupHost,
+            Guid.NewGuid().ToString("D"),
+            "手机备份主机",
+            5280,
+            "http://192.168.1.20:5280",
+            mobileOrderReceivers: null,
+            clients);
+
+        RecordingDeviceInfo mobile = Assert.Single(devices);
+        Assert.Equal(mobileNodeId, mobile.NodeId);
+        Assert.Equal("http://192.168.1.31:5281", mobile.Address);
+    }
+
+    [Theory]
+    [InlineData("http://127.0.0.1:5280")]
+    [InlineData("http://169.254.1.20:5280")]
+    [InlineData("http://8.8.8.8:5280")]
+    [InlineData("not-an-address")]
+    public void CatalogRejectsAddressesThatAreNotUsableOnTheLan(string address)
+    {
+        IReadOnlyList<RecordingDeviceInfo> devices = RecordingDeviceCatalog.Build(
+            DeploymentPresets.MobileBackupHost,
+            Guid.NewGuid().ToString("D"),
+            "手机备份主机",
+            5280,
+            "http://192.168.1.20:5280",
+            [new MobileOrderReceiverInfo(
+                Guid.NewGuid().ToString("D"),
+                "不可访问设备",
+                address,
+                5280,
+                RecorderCapabilities,
+                Online: true)],
+            connectedClients: null);
+
+        Assert.Empty(devices);
+    }
+
+    [Fact]
+    public void MobileRegistryKeepsStableIdentityAndOnlyReturnsRecentlySeenDevices()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"epm-recorder-registry-{Guid.NewGuid():N}");
+        string path = Path.Combine(directory, "receivers.json");
+        DateTime now = new(2026, 7, 25, 0, 0, 0, DateTimeKind.Utc);
+        string nodeId = Guid.NewGuid().ToString("D");
+        try
+        {
+            var registry = new MobileOrderReceiverRegistry(path, () => now);
+            registry.Register(
+                IPAddress.Parse("192.168.1.31"),
+                nodeId,
+                "打包手机一",
+                5281,
+                RecorderCapabilities);
+
+            MobileOrderReceiverInfo device = Assert.Single(registry.GetRecordingDevices());
+            Assert.Equal(nodeId, device.NodeId);
+            Assert.Equal("打包手机一", device.NodeName);
+            Assert.Equal(5281, device.Port);
+
+            now = now.AddMinutes(6);
+            Assert.Empty(registry.GetRecordingDevices());
+            Assert.Single(registry.GetAuthorities());
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task RecordingDevicesApiExposesRecordingHostWithoutAccessKey()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"epm-recorders-api-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        int port = GetFreeTcpPort();
+        string nodeId = Guid.NewGuid().ToString("D");
+        try
+        {
+            using var database = new VideoDatabase(Path.Combine(directory, "videos.db"));
+            using var server = new WebServer(
+                database,
+                port,
+                requireAccessKey: true,
+                accessKey: "secret-web-access-key",
+                listenerHost: "127.0.0.1",
+                mobileConnectionUrlProvider: () => $"http://192.168.1.20:{port}/?key=secret-web-access-key",
+                mobileBackupStateDirectory: Path.Combine(directory, "uploads"),
+                mobileBackupRecordingRootResolver: () => Path.Combine(directory, "recordings"),
+                nodeId: nodeId,
+                nodeName: "一号电脑录像",
+                deploymentPreset: DeploymentPresets.RecordingHost);
+            server.Start();
+
+            using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
+            using JsonDocument payload = await client.GetFromJsonAsync<JsonDocument>(
+                "/api/recording-devices",
+                TestContext.Current.CancellationToken) ?? throw new InvalidOperationException("接口未返回 JSON");
+            JsonElement device = Assert.Single(payload.RootElement.GetProperty("devices").EnumerateArray());
+
+            Assert.Equal(nodeId, device.GetProperty("nodeId").GetString());
+            Assert.Equal("一号电脑录像", device.GetProperty("nodeName").GetString());
+            Assert.Equal($"http://192.168.1.20:{port}", device.GetProperty("address").GetString());
+            Assert.DoesNotContain(
+                "secret-web-access-key",
+                payload.RootElement.GetRawText(),
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            try { Directory.Delete(directory, recursive: true); } catch { }
+        }
+    }
+
+    private static int GetFreeTcpPort()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return port;
+    }
+}

@@ -568,6 +568,9 @@ namespace ExpressPackingMonitoring.Services
                     case "/api/node-info" when method == "GET":
                         HandleNodeInfo(ctx);
                         break;
+                    case "/api/recording-devices" when method == "GET":
+                        HandleRecordingDevices(ctx);
+                        break;
                     case "/api/videos":
                         HandleSearchVideos(ctx);
                         break;
@@ -699,6 +702,34 @@ namespace ExpressPackingMonitoring.Services
             });
         }
 
+        private void HandleRecordingDevices(HttpListenerContext ctx)
+        {
+            IReadOnlyList<RecordingDeviceInfo> devices = GetRecordingDevices(
+                ctx.Request.Url?.Authority ?? "");
+            SendJson(ctx, 200, new { devices });
+        }
+
+        internal IReadOnlyList<RecordingDeviceInfo> GetRecordingDevices(string currentAuthority)
+        {
+            string primaryAuthority = ResolveUserscriptPrimaryAuthority(currentAuthority);
+            string hostAddress = $"http://{primaryAuthority}";
+            if (RecordingDeviceCatalog.NormalizeLanHttpAddress(hostAddress, Port).Length == 0)
+            {
+                string fallbackAuthority = global::ExpressPackingMonitoring.WorkstationNetwork
+                    .GetBestLocalAccessAddress(Port);
+                hostAddress = $"http://{fallbackAuthority}";
+            }
+
+            return RecordingDeviceCatalog.Build(
+                _deploymentPreset,
+                _nodeId,
+                _nodeName,
+                Port,
+                hostAddress,
+                _mobileOrderReceivers.GetRecordingDevices(),
+                _connectedClients.GetSnapshot());
+        }
+
         internal static bool IsMobileBackupPath(string path) =>
             path?.StartsWith("/api/mobile-backup", StringComparison.OrdinalIgnoreCase) == true;
 
@@ -786,7 +817,8 @@ namespace ExpressPackingMonitoring.Services
         {
             try
             {
-                MobileBackupCreateResult result = _mobileBackupService.CreateOrResume(ReadJsonBody<MobileBackupCreateRequest>(ctx));
+                MobileBackupCreateRequest request = ReadJsonBody<MobileBackupCreateRequest>(ctx);
+                MobileBackupCreateResult result = _mobileBackupService.CreateOrResume(request);
                 SendJson(ctx, 200, new
                 {
                     uploadId = result.UploadId,
@@ -822,7 +854,12 @@ namespace ExpressPackingMonitoring.Services
         {
             try
             {
-                MobileBackupCompleteResult result = _mobileBackupService.Complete(uploadId, ReadJsonBody<MobileBackupCompleteRequest>(ctx));
+                MobileBackupCompleteRequest request = ReadJsonBody<MobileBackupCompleteRequest>(ctx);
+                _mobileOrderReceivers.Register(
+                    ctx.Request.RemoteEndPoint?.Address,
+                    request.SourceDeviceId,
+                    request.SourceDeviceName);
+                MobileBackupCompleteResult result = _mobileBackupService.Complete(uploadId, request);
                 SendJson(ctx, 200, new
                 {
                     status = result.Status,

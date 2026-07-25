@@ -50,6 +50,12 @@ internal sealed class ConnectedClientRegistry : IDisposable
         string clientType = NormalizeClientType(heartbeat.ClientType);
         string displayName = NormalizeDisplayName(heartbeat.DisplayName);
         string address = string.IsNullOrWhiteSpace(remoteAddress) ? "unknown" : remoteAddress.Trim();
+        string nodeId = NormalizeOptionalIdentifier(heartbeat.NodeId, clientId);
+        string deviceType = NormalizeDeviceType(heartbeat.DeviceType);
+        int orderReceiverPort = heartbeat.OrderReceiverPort is > 0 and <= 65535
+            ? heartbeat.OrderReceiverPort.Value
+            : MobileOrderReceiverRegistry.OrderReceiverPort;
+        string[] capabilities = NormalizeCapabilities(heartbeat.Capabilities);
         string key = BuildKey(clientType, clientId);
 
         if (heartbeat.Connected == false)
@@ -66,7 +72,16 @@ internal sealed class ConnectedClientRegistry : IDisposable
             {
                 EnsureCapacity(address);
                 changed = true;
-                return new ConnectedClientInfo(clientId, clientType, displayName, address, now);
+                return new ConnectedClientInfo(
+                    clientId,
+                    clientType,
+                    displayName,
+                    address,
+                    now,
+                    nodeId,
+                    deviceType,
+                    orderReceiverPort,
+                    capabilities);
             },
             (_, existing) =>
             {
@@ -77,7 +92,16 @@ internal sealed class ConnectedClientRegistry : IDisposable
                 {
                     changed = true;
                 }
-                return existing with { DisplayName = displayName, RemoteAddress = address, LastSeenUtc = now };
+                return existing with
+                {
+                    DisplayName = displayName,
+                    RemoteAddress = address,
+                    LastSeenUtc = now,
+                    NodeId = nodeId,
+                    DeviceType = deviceType,
+                    OrderReceiverPort = orderReceiverPort,
+                    Capabilities = capabilities
+                };
             });
 
         if (changed) RaiseChanged();
@@ -163,6 +187,30 @@ internal sealed class ConnectedClientRegistry : IDisposable
         return result;
     }
 
+    private static string NormalizeOptionalIdentifier(string? value, string fallback)
+    {
+        string result = value?.Trim() ?? "";
+        return result.Length is >= 8 and <= 128
+            && result.All(character => char.IsLetterOrDigit(character) || character is '.' or '_' or ':' or '-')
+                ? result
+                : fallback;
+    }
+
+    private static string NormalizeDeviceType(string? value)
+    {
+        string result = value?.Trim().ToLowerInvariant() ?? "";
+        return result is "mobile" or "pc" ? result : "";
+    }
+
+    private static string[] NormalizeCapabilities(IEnumerable<string>? values) =>
+        (values ?? [])
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim().ToLowerInvariant())
+            .Where(value => value.Length <= 64)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(16)
+            .ToArray();
+
     private static string BuildKey(string clientType, string clientId) => $"{clientType}:{clientId}";
 
     private static string NormalizeRemoteAddress(string? value)
@@ -189,6 +237,10 @@ internal sealed class ConnectedClientHeartbeat
     public string ClientType { get; set; } = "";
     public string DisplayName { get; set; } = "";
     public bool? Connected { get; set; }
+    public string NodeId { get; set; } = "";
+    public string DeviceType { get; set; } = "";
+    public int? OrderReceiverPort { get; set; }
+    public string[] Capabilities { get; set; } = [];
 }
 
 internal sealed record ConnectedClientInfo(
@@ -196,7 +248,11 @@ internal sealed record ConnectedClientInfo(
     string ClientType,
     string DisplayName,
     string RemoteAddress,
-    DateTimeOffset LastSeenUtc);
+    DateTimeOffset LastSeenUtc,
+    string NodeId,
+    string DeviceType,
+    int OrderReceiverPort,
+    IReadOnlyList<string> Capabilities);
 
 internal sealed class ConnectedClientValidationException(string errorCode, string message) : Exception(message)
 {

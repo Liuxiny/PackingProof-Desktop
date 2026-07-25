@@ -119,6 +119,7 @@
     <Compile Include="Services\MobileOrderReceiverRegistry.cs" />
     <Compile Include="Services\NoCameraWorkstationHost.cs" />
     <Compile Include="Services\PackingProofNodeInfo.cs" />
+    <Compile Include="Services\RecordingDeviceCatalog.cs" />
     <Compile Include="Services\TrayIconService.cs" />
     <Compile Include="Services\ShortLivedSnapshotCache.cs" />
     <Compile Include="Services\StorageLocationResolver.cs" />
