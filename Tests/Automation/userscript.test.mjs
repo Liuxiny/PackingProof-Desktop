@@ -203,6 +203,8 @@ function createDiscoveryContext(initialStore, reachableHosts, installAddress = '
   };
   const context = {
     DEFAULT_HOST: '127.0.0.1', DEFAULT_PORT: 5280, DEFAULT_ADDRESS: '127.0.0.1:5280',
+    PACKING_PROOF_HOST: null,
+    PACKING_PROOF_RECORDERS: [],
     INSTALL_MONITOR_ADDRESSES: installAddress ? [installAddress] : [],
     INSTALL_PRIMARY_MONITOR_ADDRESS: installAddress || '',
     MONITOR_ADDRESSES_KEY: 'monitor_addresses',
@@ -252,7 +254,7 @@ test('address lookup probes only installed saved and local addresses', async () 
     new Set(),
     '192.168.31.10:5280');
   assert.equal(await context.findMonitor(false), '');
-  assert.equal(getRequestCount(), 4);
+  assert.equal(getRequestCount(), 3);
 });
 
 test('paired monitor list fails over only among explicitly configured addresses', async () => {
@@ -288,15 +290,23 @@ test('mobile order receiver is broadcast target but never selected as refund con
 test('order push broadcasts to every paired receiver and tolerates one offline device', async () => {
   const requests = [];
   const notifications = [];
+  const devices = [
+    { nodeId: 'pc', name: 'PC recorder', type: 'pc', url: 'http://192.168.31.250:5280' },
+    { nodeId: 'phone', name: 'Phone recorder', type: 'mobile', url: 'http://192.168.31.205:5280' }
+  ];
   const context = {
     DEFAULT_PORT: 5280,
     normalizeAddress: value => {
+      if (/^https?:\/\//i.test(String(value))) {
+        const url = new URL(String(value));
+        return { host: url.hostname, port: Number(url.port || 5280) };
+      }
       const [host, port = '5280'] = String(value).split(':');
       return { host, port: Number(port) };
     },
     formatAddress: address => `${address.host}:${address.port}`,
     getBaseUrl: (host, port) => `http://${host}:${port}`,
-    getPairedMonitorAddresses: () => ['192.168.31.250:5280', '192.168.31.205:5280'],
+    getRecorderDevices: () => devices,
     parseJsonResponse: text => JSON.parse(text || '{}'),
     GM_xmlhttpRequest: options => {
       requests.push(options.url);
@@ -309,13 +319,16 @@ test('order push broadcasts to every paired receiver and tolerates one offline d
     },
     showNotification: message => notifications.push(message),
     debugLog: () => {},
+    console: { info() {}, warn() {} },
     Promise,
     Number,
-    JSON
+    String,
+    JSON,
+    URL
   };
   vm.createContext(context);
   vm.runInContext(
-    between('    function pushOrdersToAddress(', '    function requestMonitor(') +
+    between('    function sendOrderToRecorder(', '    function requestMonitor(') +
       ';globalThis.pushOrders=pushToMonitor;',
     context);
 
