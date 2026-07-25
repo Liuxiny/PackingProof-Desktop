@@ -28,7 +28,7 @@ namespace ExpressPackingMonitoring
             {
                 MessageBox.Show(
                     restartWaitError,
-                    "切换录像方式失败",
+                    "切换用途失败",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
                 Shutdown(1);

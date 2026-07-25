@@ -484,7 +484,7 @@ public partial class PrintWorkstationWindow : Window
                 out AppConfig savedConfig,
                 out string error))
         {
-            SetStatus("录像方式保存失败", error, StatusVisual.Error);
+            SetStatus("用途保存失败", error, StatusVisual.Error);
             return;
         }
 

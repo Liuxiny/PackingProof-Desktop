@@ -54,7 +54,7 @@
                         VerticalAlignment="Center"
                         Style="{StaticResource SecondaryButtonStyle}"
                         Click="SwitchWorkstation_Click"
-                        Content="更改部署场景"/>
+                        Content="切换用途"/>
             </Grid>
 
             <Border Grid.Row="2" Style="{StaticResource CardStyle}">

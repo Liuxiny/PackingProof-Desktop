@@ -60,7 +60,7 @@ public sealed class SettingsCapabilityVisibilityTests
     }
 
     [Theory]
-    [InlineData("部署场景")]
+    [InlineData("电脑用途")]
     [InlineData("关闭窗口时")]
     [InlineData("界面语言")]
     [InlineData("外观主题")]

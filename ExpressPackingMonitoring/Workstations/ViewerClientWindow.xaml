@@ -19,13 +19,24 @@
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <StackPanel>
-                <TextBlock Text="查看客户端" FontSize="28" FontWeight="Black"
-                           Foreground="{DynamicResource TextPrimary}"/>
-                <TextBlock Text="连接局域网中的 PackingProof 主机，不在本机录制或保存录像"
-                           Margin="0,6,0,0"
-                           Foreground="{DynamicResource TextSecondary}"/>
-            </StackPanel>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="查看客户端" FontSize="28" FontWeight="Black"
+                               Foreground="{DynamicResource TextPrimary}"/>
+                    <TextBlock Text="连接局域网中的 PackingProof 主机，不在本机录制或保存录像"
+                               Margin="0,6,0,0"
+                               Foreground="{DynamicResource TextSecondary}"/>
+                </StackPanel>
+                <Button Grid.Column="1"
+                        VerticalAlignment="Center"
+                        Style="{StaticResource SecondaryButtonStyle}"
+                        Click="SwitchPurpose_Click"
+                        Content="切换用途"/>
+            </Grid>
 
             <Border Grid.Row="1"
                     Margin="0,22,0,0"

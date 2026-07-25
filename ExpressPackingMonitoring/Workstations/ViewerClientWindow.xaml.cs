@@ -166,6 +166,45 @@ public partial class ViewerClientWindow : Window
             MessageBox.Show(this, error, "安装快递助手联动失败", MessageBoxButton.OK, MessageBoxImage.Error);
     }
 
+    private void SwitchPurpose_Click(object sender, RoutedEventArgs e)
+    {
+        var selector = new WorkstationSelectionWindow { Owner = this };
+        if (selector.ShowDialog() != true || string.IsNullOrWhiteSpace(selector.SelectedPreset))
+            return;
+
+        if (string.Equals(
+                DeploymentPresets.ViewerClient,
+                selector.SelectedPreset,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            MessageBox.Show(this, "当前已经是连接已有主机用途", "切换用途",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        if (!WorkstationConfigStore.TryUpdate(
+                config =>
+                {
+                    config.DeploymentPreset = selector.SelectedPreset;
+                    config.DeploymentSchemaVersion = DeploymentPresets.CurrentSchemaVersion;
+                    config.WorkstationRole = selector.SelectedPreset == DeploymentPresets.RecordingHost
+                        ? WorkstationRoles.CameraMonitor
+                        : WorkstationRoles.PrintStation;
+                },
+                out AppConfig savedConfig,
+                out string error))
+        {
+            MessageBox.Show(this, $"用途保存失败：{error}", "切换用途",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        _config.DeploymentPreset = savedConfig.DeploymentPreset;
+        _config.DeploymentSchemaVersion = savedConfig.DeploymentSchemaVersion;
+        _config.WorkstationRole = savedConfig.WorkstationRole;
+        WorkstationNetwork.AskRestart(this);
+    }
+
     private async void BindSelected_Click(object sender, RoutedEventArgs e)
     {
         if (HostsList.SelectedItem is PackingProofNodeInfo node)

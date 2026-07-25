@@ -850,7 +850,7 @@
                                             <ColumnDefinition Width="260"/>
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Margin="0,0,16,0">
-                                            <TextBlock Text="部署场景" Style="{StaticResource FieldLabelStyle}"/>
+                                            <TextBlock Text="电脑用途" Style="{StaticResource FieldLabelStyle}"/>
                                             <TextBlock Text="选择这台电脑在 PackingProof 中承担的职责"
                                                        Style="{StaticResource FieldHintStyle}"/>
                                         </StackPanel>
@@ -872,7 +872,7 @@
                                             </ComboBoxItem>
                                             <ComboBoxItem Tag="MobileBackupHost">
                                                 <StackPanel Orientation="Horizontal">
-                                                    <Path Data="{StaticResource FluentStorageIcon}" Width="16" Height="16" Stretch="Uniform" Fill="{DynamicResource AccentOrange}" Margin="0,0,8,0"/>
+                                                    <Path Data="{StaticResource FluentPhoneIcon}" Width="16" Height="16" Stretch="Uniform" Fill="{DynamicResource AccentOrange}" Margin="0,0,8,0"/>
                                                     <TextBlock Text="接收手机录像"/>
                                                 </StackPanel>
                                             </ComboBoxItem>

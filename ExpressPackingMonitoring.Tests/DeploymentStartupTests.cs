@@ -65,6 +65,55 @@ public sealed class DeploymentStartupTests
     }
 
     [Fact]
+    public void ViewerClientExposesPurposeSwitchAndUsesSharedRestartFlow()
+    {
+        string viewerXaml = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "Workstations",
+            "ViewerClientWindow.xaml");
+        string mobileBackupXaml = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "Workstations",
+            "PrintWorkstationWindow.xaml");
+        string recordingXaml = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "UI",
+            "MainWindow.xaml");
+        string source = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "Workstations",
+            "ViewerClientWindow.xaml.cs");
+
+        Assert.Contains("Content=\"切换用途\"", viewerXaml, StringComparison.Ordinal);
+        Assert.Contains("Click=\"SwitchPurpose_Click\"", viewerXaml, StringComparison.Ordinal);
+        Assert.Contains("Content=\"切换用途\"", mobileBackupXaml, StringComparison.Ordinal);
+        Assert.Contains("Text=\"切换用途\"", recordingXaml, StringComparison.Ordinal);
+        Assert.Contains("new WorkstationSelectionWindow { Owner = this }", source, StringComparison.Ordinal);
+        Assert.Contains("WorkstationNetwork.AskRestart(this)", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MobileBackupPurposeUsesPhoneIcon()
+    {
+        string selector = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "Workstations",
+            "WorkstationSelectionWindow.xaml");
+        string settings = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "UI",
+            "SettingsWindow.xaml");
+        string icons = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "Themes",
+            "FluentIcons.xaml");
+
+        Assert.Contains("Data=\"{StaticResource FluentPhoneIcon}\"", selector, StringComparison.Ordinal);
+        Assert.Contains("Data=\"{StaticResource FluentPhoneIcon}\"", settings, StringComparison.Ordinal);
+        Assert.Contains("x:Key=\"FluentPhoneIcon\"", icons, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AppMapsEveryPresetToItsDedicatedWindow()
     {
         string source = ReadRepositoryFile("ExpressPackingMonitoring", "App.xaml.cs");
