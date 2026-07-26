@@ -140,8 +140,7 @@ public sealed class DeploymentStartupTests
             appSource,
             StringComparison.Ordinal);
         Assert.Contains("AppConfig.ShouldRunDeploymentSetup(config)", appSource, StringComparison.Ordinal);
-        Assert.Contains("bool shouldPersistDraft = string.Equals", appSource, StringComparison.Ordinal);
-        Assert.Contains("if (shouldPersistDraft", appSource, StringComparison.Ordinal);
+        Assert.Contains("AppConfig.ShouldRunRecordingSetup(config)", appSource, StringComparison.Ordinal);
         Assert.Contains("SkipButton.Visibility = allowSkip", wizardSource, StringComparison.Ordinal);
         Assert.Contains("录制主机必须先选择可用摄像头", wizardSource, StringComparison.Ordinal);
         Assert.Contains("录制主机必须先选择可用麦克风", wizardSource, StringComparison.Ordinal);
@@ -167,7 +166,7 @@ public sealed class DeploymentStartupTests
     }
 
     [Fact]
-    public void SwitchingNonRecordingComputerToRecordingRunsSetupBeforeSaving()
+    public void SwitchingNonRecordingComputerToRecordingDefersSetupUntilRestart()
     {
         string viewerSource = ReadRepositoryFile(
             "ExpressPackingMonitoring",
@@ -182,9 +181,15 @@ public sealed class DeploymentStartupTests
             "UI",
             "SettingsWindow.xaml.cs");
 
-        AssertSetupPrecedesSave(viewerSource, "WorkstationConfigStore.TrySave(recordingConfig");
-        AssertSetupPrecedesSave(mobileBackupSource, "WorkstationConfigStore.TrySave(recordingConfig");
-        Assert.Contains(
+        Assert.DoesNotContain(
+            "FirstUseSetupWizardWindow.TryConfigureRecordingHost(",
+            viewerSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "FirstUseSetupWizardWindow.TryConfigureRecordingHost(",
+            mobileBackupSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
             "FirstUseSetupWizardWindow.TryConfigureRecordingHost(",
             settingsSource,
             StringComparison.Ordinal);
@@ -266,14 +271,4 @@ public sealed class DeploymentStartupTests
         throw new FileNotFoundException(string.Join(Path.DirectorySeparatorChar, parts));
     }
 
-    private static void AssertSetupPrecedesSave(string source, string saveMarker)
-    {
-        int setup = source.IndexOf(
-            "FirstUseSetupWizardWindow.TryConfigureRecordingHost(",
-            StringComparison.Ordinal);
-        int save = source.IndexOf(saveMarker, StringComparison.Ordinal);
-
-        Assert.True(setup >= 0);
-        Assert.True(save > setup);
-    }
 }

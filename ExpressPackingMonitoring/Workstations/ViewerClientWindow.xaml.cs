@@ -141,6 +141,7 @@ public partial class ViewerClientWindow : Window
         _config.LastKnownHostAddress = saved.LastKnownHostAddress;
         _config.FirstUseWizardCompleted = saved.FirstUseWizardCompleted;
         _config.DeploymentSetupVersion = saved.DeploymentSetupVersion;
+        _config.RecordingSetupVersion = saved.RecordingSetupVersion;
         _deploymentSetupPersisted = true;
         _boundHost = node;
         DiscoveryPanel.Visibility = Visibility.Collapsed;
@@ -186,30 +187,6 @@ public partial class ViewerClientWindow : Window
         {
             MessageBox.Show(this, "当前已经是连接已有主机用途", "切换用途",
                 MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
-        }
-
-        if (string.Equals(
-                DeploymentPresets.RecordingHost,
-                selector.SelectedPreset,
-                StringComparison.OrdinalIgnoreCase))
-        {
-            if (!FirstUseSetupWizardWindow.TryConfigureRecordingHost(
-                    _config,
-                    this,
-                    out AppConfig recordingConfig))
-            {
-                return;
-            }
-
-            if (!WorkstationConfigStore.TrySave(recordingConfig, out string recordingError))
-            {
-                MessageBox.Show(this, $"用途保存失败：{recordingError}", "切换用途",
-                    MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
-            }
-
-            WorkstationNetwork.AskRestart(this);
             return;
         }
 
@@ -270,6 +247,7 @@ public partial class ViewerClientWindow : Window
         _config.LastKnownHostAddress = saved.LastKnownHostAddress;
         _config.FirstUseWizardCompleted = saved.FirstUseWizardCompleted;
         _config.DeploymentSetupVersion = saved.DeploymentSetupVersion;
+        _config.RecordingSetupVersion = saved.RecordingSetupVersion;
         _deploymentSetupPersisted = true;
     }
 

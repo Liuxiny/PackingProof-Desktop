@@ -121,6 +121,27 @@ public sealed class DeploymentPresetTests
         Assert.Equal(databaseMarker, config.AppRootDirectory);
         Assert.Equal(recordingPath, Assert.Single(config.StorageLocations).Path);
         Assert.Equal(AppConfig.CurrentDeploymentSetupVersion, config.DeploymentSetupVersion);
+        Assert.Equal(AppConfig.CurrentRecordingSetupVersion, config.RecordingSetupVersion);
+    }
+
+    [Fact]
+    public void RecordingSetupCompletionIsTrackedSeparatelyFromDeploymentSetup()
+    {
+        var config = new AppConfig
+        {
+            DeploymentPreset = DeploymentPresets.ViewerClient,
+            DeploymentSetupVersion = AppConfig.CurrentDeploymentSetupVersion,
+            FirstUseWizardCompleted = true
+        };
+
+        Assert.True(AppConfig.ShouldRunRecordingSetup(config));
+
+        config.CameraMonikerString = "camera";
+        config.AudioDeviceName = "microphone";
+        config.DeploymentPreset = DeploymentPresets.RecordingHost;
+        AppConfig.NormalizeAfterLoad(config);
+
+        Assert.False(AppConfig.ShouldRunRecordingSetup(config));
     }
 
     [Fact]

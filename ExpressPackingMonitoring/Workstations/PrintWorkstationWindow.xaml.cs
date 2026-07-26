@@ -473,29 +473,6 @@ public partial class PrintWorkstationWindow : Window
             return;
         }
 
-        if (string.Equals(
-                DeploymentPresets.RecordingHost,
-                window.SelectedPreset,
-                StringComparison.OrdinalIgnoreCase))
-        {
-            if (!FirstUseSetupWizardWindow.TryConfigureRecordingHost(
-                    _config,
-                    this,
-                    out AppConfig recordingConfig))
-            {
-                return;
-            }
-
-            if (!WorkstationConfigStore.TrySave(recordingConfig, out string recordingError))
-            {
-                SetStatus("用途保存失败", recordingError, StatusVisual.Error);
-                return;
-            }
-
-            WorkstationNetwork.AskRestart(this);
-            return;
-        }
-
         if (!WorkstationConfigStore.TryUpdate(
                 config =>
                 {
@@ -546,6 +523,7 @@ public partial class PrintWorkstationWindow : Window
         _config.EnableWebServer = savedConfig.EnableWebServer;
         _config.FirstUseWizardCompleted = savedConfig.FirstUseWizardCompleted;
         _config.DeploymentSetupVersion = savedConfig.DeploymentSetupVersion;
+        _config.RecordingSetupVersion = savedConfig.RecordingSetupVersion;
         _deploymentSetupPersisted = true;
     }
 }

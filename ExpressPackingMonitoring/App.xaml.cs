@@ -109,28 +109,35 @@ namespace ExpressPackingMonitoring
                     _ => ""
                 };
 
-                bool shouldPersistDraft = string.Equals(
-                        selector.SelectedPreset,
-                        DeploymentPresets.RecordingHost,
-                        StringComparison.Ordinal);
-                if (shouldPersistDraft)
-                {
-                    if (!FirstUseSetupWizardWindow.TryConfigureRecordingHost(
-                            draft,
-                            owner: null,
-                            out AppConfig configuredDraft))
-                    {
-                        RuntimeLog.RecordShutdownRequest("RecordingHostSetupCancelled");
-                        Shutdown(0);
-                        return;
-                    }
+                AppConfig.NormalizeAfterLoad(draft);
+                config = draft;
+                startupPreset = draft.DeploymentPreset;
+            }
 
-                    draft = configuredDraft;
+            if (!DeploymentPresets.IsKnown(startupPreset))
+            {
+                RuntimeLog.RecordShutdownRequest("InvalidDeploymentPreset", startupPreset);
+                Shutdown(0);
+                return;
+            }
+
+            if (string.Equals(
+                    startupPreset,
+                    DeploymentPresets.RecordingHost,
+                    StringComparison.OrdinalIgnoreCase)
+                && AppConfig.ShouldRunRecordingSetup(config))
+            {
+                if (!FirstUseSetupWizardWindow.TryConfigureRecordingHost(
+                        config,
+                        owner: null,
+                        out AppConfig configuredRecordingHost))
+                {
+                    RuntimeLog.RecordShutdownRequest("RecordingHostSetupCancelled");
+                    Shutdown(0);
+                    return;
                 }
 
-                AppConfig.NormalizeAfterLoad(draft);
-                if (shouldPersistDraft
-                    && !WorkstationConfigStore.TrySave(draft, out string saveError))
+                if (!WorkstationConfigStore.TrySave(configuredRecordingHost, out string saveError))
                 {
                     MessageBox.Show(
                         $"配置保存失败，程序无法安全启动。\n\n{saveError}",
@@ -141,15 +148,7 @@ namespace ExpressPackingMonitoring
                     return;
                 }
 
-                config = draft;
-                startupPreset = draft.DeploymentPreset;
-            }
-
-            if (!DeploymentPresets.IsKnown(startupPreset))
-            {
-                RuntimeLog.RecordShutdownRequest("InvalidDeploymentPreset", startupPreset);
-                Shutdown(0);
-                return;
+                config = configuredRecordingHost;
             }
 
             AutoStartService.Apply(config.AutoStartOnBoot);
