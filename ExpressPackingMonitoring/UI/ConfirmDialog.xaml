@@ -3,39 +3,82 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="{Binding Path=Title, RelativeSource={RelativeSource Self}}"
         SizeToContent="Height"
-        Width="380"
-        WindowStyle="ToolWindow"
+        Width="440"
+        MaxHeight="620"
+        WindowStyle="None"
+        AllowsTransparency="True"
         ResizeMode="NoResize"
+        ShowInTaskbar="False"
         WindowStartupLocation="CenterOwner"
-        Background="{DynamicResource PanelBackground}"
-        Foreground="{DynamicResource TextPrimary}">
+        Background="Transparent"
+        Foreground="{DynamicResource TextPrimary}"
+        KeyDown="Window_KeyDown">
+    <Border Background="{DynamicResource PanelBackground}"
+            BorderBrush="{DynamicResource BorderDefault}"
+            BorderThickness="1"
+            CornerRadius="14"
+            Padding="24">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
 
-    <Grid Margin="24">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="12"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Border Width="38"
+                        Height="38"
+                        CornerRadius="12"
+                        Background="{DynamicResource ControlBackground}">
+                    <Path x:Name="SeverityIcon"
+                          Width="20"
+                          Height="20"
+                          Stretch="Uniform"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Center"/>
+                </Border>
+                <TextBlock x:Name="TitleText"
+                           Grid.Column="2"
+                           VerticalAlignment="Center"
+                           FontSize="18"
+                           FontWeight="Bold"
+                           TextWrapping="Wrap"
+                           Foreground="{DynamicResource TextPrimary}"/>
+            </Grid>
 
-        <TextBlock x:Name="MessageText"
-                   TextWrapping="Wrap"
-                   TextAlignment="Left"
-                   FontSize="14"
-                   LineHeight="22"
-                   Foreground="{DynamicResource TextPrimary}"/>
+            <ScrollViewer Grid.Row="1"
+                          Margin="0,18,0,0"
+                          MaxHeight="430"
+                          VerticalScrollBarVisibility="Auto">
+                <TextBlock x:Name="MessageText"
+                           TextWrapping="Wrap"
+                           TextAlignment="Left"
+                           FontSize="14"
+                           LineHeight="22"
+                           Foreground="{DynamicResource TextPrimary}"/>
+            </ScrollViewer>
 
-        <StackPanel Grid.Row="1"
-                    Orientation="Horizontal"
-                    HorizontalAlignment="Right"
-                    Margin="0,22,0,0">
-            <Button x:Name="ConfirmButton"
-                    Content="确定"
-                    Style="{StaticResource DangerButtonStyle}"
-                    Margin="0,0,10,0"
-                    Click="btnOk_Click"/>
-            <Button x:Name="CancelButton"
-                    Content="取消"
-                    Style="{StaticResource SecondaryButtonStyle}"
-                    Click="btnCancel_Click"/>
-        </StackPanel>
-    </Grid>
+            <StackPanel Grid.Row="2"
+                        Orientation="Horizontal"
+                        HorizontalAlignment="Right"
+                        Margin="0,22,0,0">
+                <Button x:Name="ConfirmButton"
+                        MinWidth="92"
+                        Content="确定"
+                        Style="{StaticResource DangerButtonStyle}"
+                        Margin="0,0,10,0"
+                        Click="btnOk_Click"/>
+                <Button x:Name="CancelButton"
+                        MinWidth="92"
+                        Content="取消"
+                        Style="{StaticResource SecondaryButtonStyle}"
+                        Click="btnCancel_Click"/>
+            </StackPanel>
+        </Grid>
+    </Border>
 </Window>

@@ -76,6 +76,29 @@ public sealed class NoCameraWorkstationTests
             "PrintToolInstallGuide.CreateLocalGuide(LocalOrderAddress)",
             source,
             StringComparison.Ordinal);
+        Assert.Contains("ToastBackground", xaml, StringComparison.Ordinal);
+        Assert.Contains("ToastState.IsToastVisible", xaml, StringComparison.Ordinal);
+        Assert.Contains("private void ShowToast(", source, StringComparison.Ordinal);
+        Assert.Contains("TimeSpan.FromMilliseconds(2500)", source, StringComparison.Ordinal);
+        Assert.Contains("TimeSpan.FromSeconds(4)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("MessageBox.Show", source, StringComparison.Ordinal);
+        Assert.Contains("AppDialog.ShowMessage(", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MobileBackupToastState_RaisesChangesForMessageAndVisibility()
+    {
+        var state = new PrintWorkstationWindow.MobileBackupToastState();
+        var changed = new List<string?>();
+        state.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
+
+        state.ToastMessage = "测试提示";
+        state.IsToastVisible = true;
+
+        Assert.Equal("测试提示", state.ToastMessage);
+        Assert.True(state.IsToastVisible);
+        Assert.Contains(nameof(state.ToastMessage), changed);
+        Assert.Contains(nameof(state.IsToastVisible), changed);
     }
 
     [Fact]

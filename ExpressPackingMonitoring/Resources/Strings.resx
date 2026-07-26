@@ -604,4 +604,6 @@
   <data name="今日备份" xml:space="preserve"><value>Backed up today</value></data>
   <data name="累计备份" xml:space="preserve"><value>Total backups</value></data>
   <data name="个" xml:space="preserve"><value> recordings</value></data>
+  <data name="已打开订单联动安装向导" xml:space="preserve"><value>Order integration setup guide opened</value></data>
+  <data name="当前已经是接收手机录像用途" xml:space="preserve"><value>This computer is already set to receive phone recordings</value></data>
 </root>

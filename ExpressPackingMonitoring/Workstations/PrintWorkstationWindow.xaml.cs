@@ -1,10 +1,13 @@
 using ExpressPackingMonitoring.Config;
 using ExpressPackingMonitoring.Data;
+using ExpressPackingMonitoring.Localization;
 using ExpressPackingMonitoring.Services;
 using ExpressPackingMonitoring.Themes;
 using ExpressPackingMonitoring.UI;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Media;
@@ -19,6 +22,34 @@ public partial class PrintWorkstationWindow : Window
         public string DeviceId { get; init; } = "";
         public string DisplayText { get; init; } = "";
         public bool IsOnline { get; init; }
+    }
+
+    public sealed class MobileBackupToastState : INotifyPropertyChanged
+    {
+        private string _toastMessage = "";
+        private bool _isToastVisible;
+
+        public string ToastMessage
+        {
+            get => _toastMessage;
+            set => SetField(ref _toastMessage, value);
+        }
+
+        public bool IsToastVisible
+        {
+            get => _isToastVisible;
+            set => SetField(ref _isToastVisible, value);
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        private void SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+        {
+            if (EqualityComparer<T>.Default.Equals(field, value))
+                return;
+            field = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
     }
 
     private enum StatusVisual
@@ -36,6 +67,7 @@ public partial class PrintWorkstationWindow : Window
     private readonly CancellationTokenSource _lifetimeCts = new();
     private readonly WindowCloseBehaviorController _closeBehaviorController;
     private readonly DispatcherTimer _deviceRefreshTimer;
+    private readonly DispatcherTimer _toastTimer;
     private StatisticsWindow? _statisticsWindow;
     private PlaybackWindow? _playbackWindow;
     private bool _loaded;
@@ -43,6 +75,7 @@ public partial class PrintWorkstationWindow : Window
     private bool _deploymentSetupPersisted;
     private bool _testOrderSending;
     public ObservableCollection<MobileBackupStatusItem> MobileBackupDeviceStatuses { get; } = [];
+    public MobileBackupToastState ToastState { get; } = new();
 
     public PrintWorkstationWindow(
         AppConfig config,
@@ -63,12 +96,20 @@ public partial class PrintWorkstationWindow : Window
             enableCloseBehaviorPrompt);
         _deviceRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         _deviceRefreshTimer.Tick += (_, _) => RefreshDeviceSummary();
+        _toastTimer = new DispatcherTimer();
+        _toastTimer.Tick += (_, _) =>
+        {
+            _toastTimer.Stop();
+            ToastState.IsToastVisible = false;
+        };
         Loaded += Window_Loaded;
         Closing += Window_Closing;
         Closed += (_, _) =>
         {
             _closeBehaviorController.Dispose();
             _deviceRefreshTimer.Stop();
+            _toastTimer.Stop();
+            ToastState.IsToastVisible = false;
             _lifetimeCts.Cancel();
             _host.MobileBackupStatusChanged -= OnMobileBackupStatusChanged;
             _host.Dispose();
@@ -186,10 +227,29 @@ public partial class PrintWorkstationWindow : Window
             StatusIconPath.Fill = brush;
     }
 
+    private void ShowToast(string message, StatusVisual visual = StatusVisual.Success)
+    {
+        _toastTimer.Stop();
+        ToastState.ToastMessage = AppLanguage.Translate(message);
+        ToastState.IsToastVisible = true;
+        _toastTimer.Interval = visual is StatusVisual.Warning or StatusVisual.Error
+            ? TimeSpan.FromSeconds(4)
+            : TimeSpan.FromMilliseconds(2500);
+        string iconKey = visual switch
+        {
+            StatusVisual.Error => "FluentDismissIcon",
+            StatusVisual.Warning => "FluentWarningIcon",
+            _ => "FluentCheckIcon"
+        };
+        if (TryFindResource(iconKey) is Geometry icon)
+            ToastIconPath.Data = icon;
+        _toastTimer.Start();
+    }
+
     private void OpenLocalPlayback()
     {
         if (!WorkstationNetwork.TryOpenUrl(_host.LocalPlaybackUrl, out string error))
-            SetStatus("打开本机回放失败", error, StatusVisual.Error);
+            ShowToast($"打开本机回放失败：{error}", StatusVisual.Error);
     }
 
     private void OpenWeb_Click(object sender, RoutedEventArgs e) => OpenLocalPlayback();
@@ -234,7 +294,9 @@ public partial class PrintWorkstationWindow : Window
             ConnectionAddressProvider = () => _host.IsLanAvailable ? _host.LanAccessUrl : _host.LocalPlaybackUrl,
             ShowMobileConnection = ShowMobileConnection,
             CopyMobileConnectionUrl = CopyMobileConnectionUrl,
-            OpenUserscriptGuide = OpenUserscriptGuide
+            OpenUserscriptGuide = OpenUserscriptGuide,
+            ShowToast = message => ShowToast(message),
+            ToastSource = ToastState
         };
         (double diskUsagePercent, string diskUsageText) = GetDiskUsage(_host.StoragePath);
         var window = new SettingsWindow(
@@ -273,14 +335,13 @@ public partial class PrintWorkstationWindow : Window
         try
         {
             Clipboard.SetDataObject(address, true);
-            SetStatus(
-                _host.IsLanAvailable ? "已复制局域网地址" : "已复制本机回放地址",
-                "访问地址包含手机配对密钥，请勿转发给无关人员",
-                StatusVisual.Success);
+            ShowToast(_host.IsLanAvailable
+                ? "已复制局域网地址，请勿转发给无关人员"
+                : "已复制本机回放地址，请勿转发给无关人员");
         }
         catch (Exception ex)
         {
-            SetStatus("复制局域网地址失败", ex.Message, StatusVisual.Error);
+            ShowToast($"复制连接地址失败：{ex.Message}", StatusVisual.Error);
         }
     }
 
@@ -409,6 +470,8 @@ public partial class PrintWorkstationWindow : Window
         RepairLanButton.IsEnabled = true;
         if (!repaired && !_host.IsRunning)
             SetStatus("局域网修复失败", _host.ErrorMessage, StatusVisual.Error);
+        else if (!repaired)
+            ShowToast("局域网修复未成功，请检查防火墙和网络设置", StatusVisual.Warning);
     }
 
     private async Task<bool> ApplySettingsAsync(AppConfig nextConfig)
@@ -423,8 +486,11 @@ public partial class PrintWorkstationWindow : Window
         {
             if (!TrySaveAndActivateConfig(previousConfig, nextConfig, out string error))
             {
-                SetStatus("设置保存失败", error, StatusVisual.Error);
-                MessageBox.Show(this, $"配置保存失败：{error}", "设置", MessageBoxButton.OK, MessageBoxImage.Error);
+                AppDialog.ShowMessage(
+                    this,
+                    $"配置保存失败：{error}",
+                    "设置",
+                    AppDialogSeverity.Error);
                 return false;
             }
 
@@ -449,11 +515,13 @@ public partial class PrintWorkstationWindow : Window
         catch (Exception ex)
         {
             _host.UpdateConfig(previousConfig);
+            bool recovered = false;
             try
             {
                 await _host.StartAsync(_requestLanAccessOnStartup, _lifetimeCts.Token);
                 RefreshServiceDisplay();
                 SetControlsEnabled(true);
+                recovered = true;
             }
             catch
             {
@@ -461,8 +529,18 @@ public partial class PrintWorkstationWindow : Window
             }
 
             RepairLanButton.IsEnabled = true;
-            SetStatus("服务重启失败", ex.Message, StatusVisual.Error);
-            MessageBox.Show(this, ex.Message, "服务重启失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            if (recovered)
+            {
+                AppDialog.ShowMessage(
+                    this,
+                    ex.Message,
+                    "服务重启失败，已恢复原设置",
+                    AppDialogSeverity.Error);
+            }
+            else
+            {
+                SetStatus("服务重启失败", ex.Message, StatusVisual.Error);
+            }
             return false;
         }
     }
@@ -526,23 +604,20 @@ public partial class PrintWorkstationWindow : Window
     {
         if (!_host.IsLanAvailable)
         {
-            SetStatus(
-                "局域网服务尚未就绪",
-                "请先修复局域网服务，再生成包含全部录像设备地址的快递助手脚本",
-                StatusVisual.Error);
+            ShowToast("局域网服务尚未就绪，请先修复后再安装订单联动", StatusVisual.Warning);
             return;
         }
 
         if (!UserscriptGuideNavigation.TryOpen(_host.LanAccessUrl, out string error))
         {
-            SetStatus("打开快递助手联动安装向导失败", error, StatusVisual.Error);
+            ShowToast($"打开订单联动安装向导失败：{error}", StatusVisual.Error);
             return;
         }
         UserscriptTargetState.MarkGuideOpened(
             _config,
             _host.GetRecordingDevices(includeKnown: true));
         RefreshDeviceSummary();
-        SetStatus("已打开订单联动安装向导", "脚本会写入最近使用过的全部录像设备", StatusVisual.Success);
+        ShowToast("已打开订单联动安装向导");
     }
 
     private async void SendTestOrder_Click(object sender, RoutedEventArgs e)
@@ -553,28 +628,18 @@ public partial class PrintWorkstationWindow : Window
         _testOrderSending = true;
         SendTestOrderButton.IsEnabled = false;
         SendTestOrderButtonText.Text = "正在发送";
-        SetStatus("正在发送测试订单", "测试订单将同时发送给当前在线的全部录像设备");
         try
         {
             WorkstationNetwork.TestOrderBroadcastResult result =
                 await WorkstationNetwork.SendTestOrderToRecordingDevicesAsync(_host.LanAccessUrl);
-            StatusVisual visual = !result.HasTargets
-                ? StatusVisual.Error
-                : result.FailureCount == 0
-                    ? StatusVisual.Success
-                    : StatusVisual.Warning;
-            SetStatus(
-                result.HasTargets
-                    ? $"测试完成：成功 {result.SuccessCount} 台，失败 {result.FailureCount} 台"
-                    : "测试订单发送失败",
-                WorkstationNetwork.FormatTestOrderBroadcastResult(result),
-                visual);
-            MessageBox.Show(
+            AppDialogSeverity severity = result.HasTargets && result.FailureCount == 0
+                ? AppDialogSeverity.Information
+                : AppDialogSeverity.Warning;
+            AppDialog.ShowMessage(
                 this,
                 WorkstationNetwork.FormatTestOrderBroadcastResult(result),
                 "发送测试订单",
-                MessageBoxButton.OK,
-                visual == StatusVisual.Success ? MessageBoxImage.Information : MessageBoxImage.Warning);
+                severity);
         }
         finally
         {
@@ -595,7 +660,7 @@ public partial class PrintWorkstationWindow : Window
                 window.SelectedPreset,
                 StringComparison.OrdinalIgnoreCase))
         {
-            SetStatus("当前已选择接收手机录像", "无需重启或更改", StatusVisual.Success);
+            ShowToast("当前已经是接收手机录像用途");
             return;
         }
 
@@ -613,7 +678,11 @@ public partial class PrintWorkstationWindow : Window
                 out AppConfig savedConfig,
                 out string error))
         {
-            SetStatus("用途保存失败", error, StatusVisual.Error);
+            AppDialog.ShowMessage(
+                this,
+                $"用途保存失败：{error}",
+                "切换用途",
+                AppDialogSeverity.Error);
             return;
         }
 
