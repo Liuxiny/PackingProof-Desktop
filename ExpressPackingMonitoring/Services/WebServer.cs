@@ -1797,6 +1797,19 @@ namespace ExpressPackingMonitoring.Services
                 pageSize,
                 sourceType: sourceType,
                 deviceId: deviceId);
+            int deviceTotal = result.Total;
+            string requestingDeviceId = ctx.Request.Headers["X-EPM-Device-Id"]?.Trim() ?? "";
+            if (string.IsNullOrWhiteSpace(deviceId) && !string.IsNullOrWhiteSpace(requestingDeviceId))
+            {
+                deviceTotal = _db.QueryVideosPaged(
+                    startDate,
+                    endDate,
+                    string.IsNullOrWhiteSpace(keyword) ? null : keyword,
+                    page: 1,
+                    pageSize: 1,
+                    sourceType: "external",
+                    deviceId: requestingDeviceId).Total;
+            }
             // SQL 层只取当前页，文件存在性仅对当前页记录检查。
             var paged = result.Records.Select(r => new
             {
@@ -1828,7 +1841,7 @@ namespace ExpressPackingMonitoring.Services
                 remote = true
             });
 
-            SendJson(ctx, 200, new { total = result.Total, deviceTotal = result.Total, page, pageSize, data = paged });
+            SendJson(ctx, 200, new { total = result.Total, deviceTotal, page, pageSize, data = paged });
         }
 
         private void HandleVideoSources(HttpListenerContext ctx)

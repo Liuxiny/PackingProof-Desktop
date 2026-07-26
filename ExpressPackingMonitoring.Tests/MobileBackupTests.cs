@@ -505,6 +505,16 @@ public sealed class MobileBackupTests
                     $"cursor-session-{index:00}",
                     index.ToString("x64"));
             }
+            database.InsertMobileBackupRecord(
+                "OTHER-PHONE",
+                Path.Combine(directory, "other-phone.mp4"),
+                200,
+                sharedTime.AddMinutes(1),
+                5,
+                "phone-other",
+                "手机2",
+                "other-session",
+                new string('f', 64));
 
             using var server = new WebServer(
                 database,
@@ -541,6 +551,21 @@ public sealed class MobileBackupTests
             Assert.Single(search.RootElement.GetProperty("data").EnumerateArray());
             Assert.Equal(1, search.RootElement.GetProperty("total").GetInt32());
             Assert.Equal(1, search.RootElement.GetProperty("deviceTotal").GetInt32());
+
+            using var allDevicesRequest = new HttpRequestMessage(
+                HttpMethod.Get,
+                "/api/videos?page=1&size=50");
+            allDevicesRequest.Headers.Add("X-EPM-Device-Id", "phone-cursor");
+            using HttpResponseMessage allDevicesResponse = await client.SendAsync(
+                allDevicesRequest,
+                cancellationToken);
+            using JsonDocument allDevices = JsonDocument.Parse(
+                await allDevicesResponse.Content.ReadAsStringAsync(cancellationToken));
+            Assert.Equal(24, allDevices.RootElement.GetProperty("total").GetInt32());
+            Assert.Equal(23, allDevices.RootElement.GetProperty("deviceTotal").GetInt32());
+            Assert.Contains(
+                allDevices.RootElement.GetProperty("data").EnumerateArray(),
+                item => item.GetProperty("sourceDeviceId").GetString() == "phone-other");
 
             using JsonDocument statuses = JsonDocument.Parse(await client.GetStringAsync(
                 $"/api/videos/status?ids={firstIds[0]},999999", cancellationToken));
