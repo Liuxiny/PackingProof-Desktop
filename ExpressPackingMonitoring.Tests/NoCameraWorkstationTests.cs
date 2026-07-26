@@ -56,7 +56,9 @@ public sealed class NoCameraWorkstationTests
         Assert.Contains("x:Name=\"HostIdentityTextBlock\"", xaml, StringComparison.Ordinal);
         Assert.Contains("x:Name=\"TodayBackupCountTextBlock\"", xaml, StringComparison.Ordinal);
         Assert.Contains("x:Name=\"TotalBackupCountTextBlock\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("手机录像存储：正在检查", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("x:Name=\"LanAddressTextBlock\"", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("x:Name=\"CopyLanAddressButton\"", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("x:Name=\"StoragePathTextBlock\"", xaml, StringComparison.Ordinal);
         Assert.Equal(2, xaml.Split("Style=\"{StaticResource CardStyle}\"", StringSplitOptions.None).Length - 1);
         Assert.Contains("FluentPhoneIcon", xaml, StringComparison.Ordinal);
         Assert.Contains("FluentDataIcon", xaml, StringComparison.Ordinal);

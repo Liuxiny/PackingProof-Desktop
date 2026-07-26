@@ -104,49 +104,24 @@
 
                             <TextBlock x:Name="HostIdentityTextBlock"
                                        Margin="0,15,0,0"
-                                       Text="正在获取电脑名称和局域网地址"
+                                       Text="正在获取电脑名称"
                                        FontWeight="SemiBold"
                                        TextTrimming="CharacterEllipsis"
                                        Foreground="{DynamicResource TextPrimary}"/>
-                            <Grid Margin="0,5,0,0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock x:Name="LanAddressTextBlock"
-                                           VerticalAlignment="Center"
-                                           Text="服务启动后显示局域网地址"
-                                           TextTrimming="CharacterEllipsis"
-                                           ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
-                                           Foreground="{DynamicResource TextSecondary}"/>
-                                <Button x:Name="CopyLanAddressButton"
-                                        Grid.Column="1"
-                                        Width="30" Height="28"
-                                        Margin="8,0,0,0"
-                                        Padding="7"
-                                        Style="{StaticResource SecondaryButtonStyle}"
-                                        ToolTip="复制局域网地址"
-                                        Click="CopyLanAddress_Click">
-                                    <Path Data="{StaticResource FluentCopyIcon}"
-                                          Width="14" Height="14" Stretch="Uniform"
-                                          Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                                </Button>
-                                <Button x:Name="RepairLanButton"
-                                        Grid.Column="2"
-                                        Height="28"
-                                        Margin="8,0,0,0"
-                                        Padding="9,0"
-                                        Style="{StaticResource SecondaryButtonStyle}"
-                                        Click="RepairLan_Click">
-                                    <StackPanel Orientation="Horizontal">
-                                        <Path Data="{StaticResource FluentWarningIcon}"
-                                              Width="13" Height="13" Stretch="Uniform"
-                                              Fill="{DynamicResource AccentOrange}"/>
-                                        <TextBlock Text="修复局域网" Margin="5,0,0,0" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
-                            </Grid>
+                            <Button x:Name="RepairLanButton"
+                                    Height="28"
+                                    Margin="0,8,0,0"
+                                    Padding="9,0"
+                                    HorizontalAlignment="Left"
+                                    Style="{StaticResource SecondaryButtonStyle}"
+                                    Click="RepairLan_Click">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Data="{StaticResource FluentWarningIcon}"
+                                          Width="13" Height="13" Stretch="Uniform"
+                                          Fill="{DynamicResource AccentOrange}"/>
+                                    <TextBlock Text="修复局域网" Margin="5,0,0,0" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
 
                             <ItemsControl ItemsSource="{Binding MobileBackupDeviceStatuses, RelativeSource={RelativeSource AncestorType=Window}}"
                                           Margin="0,13,0,0"
@@ -262,7 +237,7 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <StackPanel>
+                    <StackPanel VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="今日备份"
                                        FontSize="15"
@@ -299,12 +274,6 @@
                                            Foreground="{DynamicResource AccentBlueDark}"/>
                             </StackPanel>
                         </StackPanel>
-                        <TextBlock x:Name="StoragePathTextBlock"
-                                   Margin="0,8,0,0"
-                                   Text="手机录像存储：正在检查"
-                                   TextTrimming="CharacterEllipsis"
-                                   ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
-                                   Foreground="{DynamicResource TextSecondary}"/>
                     </StackPanel>
 
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">

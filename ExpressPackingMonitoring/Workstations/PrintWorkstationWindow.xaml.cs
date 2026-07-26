@@ -122,7 +122,6 @@ public partial class PrintWorkstationWindow : Window
         }
         catch (Exception ex)
         {
-            LanAddressTextBlock.Text = ex.Message;
             SetStatus("服务启动失败", ex.Message, StatusVisual.Error);
         }
         finally
@@ -134,28 +133,20 @@ public partial class PrintWorkstationWindow : Window
 
     private void RefreshServiceDisplay()
     {
-        StoragePathTextBlock.Text = string.IsNullOrWhiteSpace(_host.StoragePath)
-            ? "手机录像存储：暂不可用"
-            : $"手机录像存储：{_host.StoragePath}";
-        HostIdentityTextBlock.Text = $"{GetHostName()} · {GetDisplayAddress()}";
+        HostIdentityTextBlock.Text = GetHostName();
         RefreshDeviceSummary();
         if (_host.IsLanAvailable)
         {
-            LanAddressTextBlock.Text = _host.LanAccessUrl;
             SetStatus("手机录像备份服务已启动", "手机可备份录像到本机，本机和局域网设备均可回放", StatusVisual.Success);
         }
         else
         {
-            LanAddressTextBlock.Text = string.IsNullOrWhiteSpace(_host.ErrorMessage)
-                ? "仅本机可用"
-                : _host.ErrorMessage;
             SetStatus("手机录像备份服务已启动 · 仅本机可用",
                 "本机回放不受影响；需要手机备份或局域网回放时，请点击“修复局域网”",
                 StatusVisual.Error);
         }
 
         ConnectPhoneButton.IsEnabled = _host.IsLanAvailable;
-        CopyLanAddressButton.IsEnabled = _host.IsLanAvailable;
         SendTestOrderButton.IsEnabled = _host.IsLanAvailable && !_testOrderSending;
         RepairLanButton.Visibility = _host.IsLanAvailable ? Visibility.Collapsed : Visibility.Visible;
     }
@@ -167,7 +158,6 @@ public partial class PrintWorkstationWindow : Window
         PlaybackButton.IsEnabled = _host.HasDatabase;
         SettingsButton.IsEnabled = true;
         ConnectPhoneButton.IsEnabled = enabled && _host.IsLanAvailable;
-        CopyLanAddressButton.IsEnabled = enabled && _host.IsLanAvailable;
         SendTestOrderButton.IsEnabled = enabled && _host.IsLanAvailable && !_testOrderSending;
     }
 
@@ -274,11 +264,6 @@ public partial class PrintWorkstationWindow : Window
             Owner = owner
         };
         dialog.ShowDialog();
-    }
-
-    private void CopyLanAddress_Click(object sender, RoutedEventArgs e)
-    {
-        CopyMobileConnectionUrl();
     }
 
     private void CopyMobileConnectionUrl()
@@ -389,14 +374,6 @@ public partial class PrintWorkstationWindow : Window
 
     private string GetHostName() =>
         string.IsNullOrWhiteSpace(_config.NodeName) ? Environment.MachineName : _config.NodeName;
-
-    private string GetDisplayAddress()
-    {
-        string address = _host.IsLanAvailable ? _host.LanAccessUrl : "";
-        return Uri.TryCreate(address, UriKind.Absolute, out Uri? uri)
-            ? uri.Authority
-            : "局域网服务未就绪";
-    }
 
     private static string GetFallbackDeviceName(string _)
     {
