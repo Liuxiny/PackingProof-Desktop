@@ -30,8 +30,9 @@ internal static class PrintToolInstallGuide
             config.NodeName,
             config.WebServerPort,
             hostAddress,
-            receivers.GetRecordingDevices(),
-            connectedClients: null);
+            receivers.GetKnownRecordingDevices(),
+            connectedClients: null,
+            includeOffline: true);
         if (File.Exists(sourceScriptPath) && devices.Count > 0)
         {
             string script = File.ReadAllText(sourceScriptPath, Encoding.UTF8);
@@ -56,8 +57,8 @@ internal static class PrintToolInstallGuide
 <div class="devices">
   <strong><span>找到</span> {devices.Count} <span>个录像设备</span></strong>
   <ul>{string.Join("", devices.Select(device =>
-      $"<li>{WebUtility.HtmlEncode(device.NodeName)}（{WebUtility.HtmlEncode(device.DeviceType)}）：{WebUtility.HtmlEncode(new Uri(device.Address).Authority)}</li>"))}</ul>
-  <p>脚本会把订单发送给以上所有录像设备，每台设备独立处理成功或失败。</p>
+      $"<li>{WebUtility.HtmlEncode(device.NodeName)}（{WebUtility.HtmlEncode(device.DeviceType)}，{(device.Online ? "在线" : "离线")}）：{WebUtility.HtmlEncode(new Uri(device.Address).Authority)}</li>"))}</ul>
+  <p>脚本会把订单同时发送给以上所有录像设备；离线设备发送失败不会影响其他设备。</p>
 </div>
 """;
         string template = LoadTemplate();

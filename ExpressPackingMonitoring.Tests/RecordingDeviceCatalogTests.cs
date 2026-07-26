@@ -222,6 +222,12 @@ public sealed class RecordingDeviceCatalogTests
             now = now.AddMinutes(6);
             Assert.Empty(registry.GetRecordingDevices());
             Assert.Single(registry.GetAuthorities());
+            MobileOrderReceiverInfo known = Assert.Single(registry.GetKnownRecordingDevices());
+            Assert.False(known.Online);
+            Assert.Equal(5281, known.Port);
+
+            now = now.AddDays(91);
+            Assert.Empty(registry.GetKnownRecordingDevices());
         }
         finally
         {

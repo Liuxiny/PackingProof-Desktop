@@ -35,7 +35,8 @@ internal static class RecordingDeviceCatalog
         int hostPort,
         string hostAddress,
         IEnumerable<MobileOrderReceiverInfo>? mobileOrderReceivers,
-        IEnumerable<ConnectedClientInfo>? connectedClients)
+        IEnumerable<ConnectedClientInfo>? connectedClients,
+        bool includeOffline = false)
     {
         var candidates = new List<RecordingDeviceInfo>();
         if (string.Equals(
@@ -108,7 +109,7 @@ internal static class RecordingDeviceCatalog
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            if (!device.Online
+            if ((!includeOffline && !device.Online)
                 || device.NodeId.Length == 0
                 || device.NodeName.Length == 0
                 || device.Address.Length == 0

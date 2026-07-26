@@ -308,6 +308,7 @@ public static class WorkstationNetwork
 
     public static async Task<IReadOnlyList<RecordingDeviceInfo>> GetRecordingDevicesAsync(
         string address,
+        bool includeKnown = false,
         CancellationToken token = default)
     {
         address = NormalizeAddress(address);
@@ -316,7 +317,10 @@ public static class WorkstationNetwork
 
         try
         {
-            using var response = await Client.GetAsync($"{ToUrl(address)}/api/recording-devices", token);
+            string scope = includeKnown ? "?scope=known" : "";
+            using var response = await Client.GetAsync(
+                $"{ToUrl(address)}/api/recording-devices{scope}",
+                token);
             if (!response.IsSuccessStatusCode)
                 return Array.Empty<RecordingDeviceInfo>();
 

@@ -720,12 +720,19 @@ namespace ExpressPackingMonitoring.Services
 
         private void HandleRecordingDevices(HttpListenerContext ctx)
         {
+            bool includeKnown = string.Equals(
+                ctx.Request.QueryString["scope"],
+                "known",
+                StringComparison.OrdinalIgnoreCase);
             IReadOnlyList<RecordingDeviceInfo> devices = GetRecordingDevices(
-                ctx.Request.Url?.Authority ?? "");
+                ctx.Request.Url?.Authority ?? "",
+                includeKnown);
             SendJson(ctx, 200, new { devices });
         }
 
-        internal IReadOnlyList<RecordingDeviceInfo> GetRecordingDevices(string currentAuthority)
+        internal IReadOnlyList<RecordingDeviceInfo> GetRecordingDevices(
+            string currentAuthority,
+            bool includeKnown = false)
         {
             string primaryAuthority = ResolveUserscriptPrimaryAuthority(currentAuthority);
             string hostAddress = $"http://{primaryAuthority}";
@@ -742,8 +749,11 @@ namespace ExpressPackingMonitoring.Services
                 _nodeName,
                 Port,
                 hostAddress,
-                _mobileOrderReceivers.GetRecordingDevices(),
-                _connectedClients.GetSnapshot());
+                includeKnown
+                    ? _mobileOrderReceivers.GetKnownRecordingDevices()
+                    : _mobileOrderReceivers.GetRecordingDevices(),
+                _connectedClients.GetSnapshot(),
+                includeOffline: includeKnown);
         }
 
         internal static bool IsMobileBackupPath(string path) =>
@@ -2686,7 +2696,7 @@ namespace ExpressPackingMonitoring.Services
         private void ServeInstallGuidePage(HttpListenerContext ctx)
         {
             string authority = ctx.Request.Url?.Authority ?? $"127.0.0.1:{ctx.Request.LocalEndPoint?.Port ?? 5280}";
-            IReadOnlyList<RecordingDeviceInfo> devices = GetRecordingDevices(authority);
+            IReadOnlyList<RecordingDeviceInfo> devices = GetRecordingDevices(authority, includeKnown: true);
             string scriptUrl = $"{ctx.Request.Url?.Scheme ?? "http"}://{authority}/kuaidizs-order-push.user.js";
             string html = PrintToolInstallGuide.RenderForWeb(devices, scriptUrl);
             ctx.Response.StatusCode = 200;
@@ -2708,7 +2718,7 @@ namespace ExpressPackingMonitoring.Services
 
             string script = File.ReadAllText(scriptPath, Encoding.UTF8);
             string authority = ctx.Request.Url?.Authority ?? "";
-            IReadOnlyList<RecordingDeviceInfo> devices = GetRecordingDevices(authority);
+            IReadOnlyList<RecordingDeviceInfo> devices = GetRecordingDevices(authority, includeKnown: true);
             if (devices.Count == 0)
             {
                 SendJson(ctx, 409, new { error = "当前没有发现可接收订单的录像设备" });

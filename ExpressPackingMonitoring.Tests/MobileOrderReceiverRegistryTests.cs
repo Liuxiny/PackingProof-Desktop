@@ -59,7 +59,7 @@ public sealed class MobileOrderReceiverRegistryTests
     }
 
     [Fact]
-    public void RegisterKeepsMostRecentSevenAddresses()
+    public void RegisterKeepsAllAddressesWithinRetentionWindow()
     {
         string directory = Path.Combine(Path.GetTempPath(), "packingproof-order-receivers-" + Guid.NewGuid().ToString("N"));
         string path = Path.Combine(directory, "receivers.json");
@@ -70,9 +70,9 @@ public sealed class MobileOrderReceiverRegistryTests
                 registry.Register(IPAddress.Parse($"192.168.31.{index}"));
 
             IReadOnlyList<string> addresses = registry.GetAuthorities();
-            Assert.Equal(7, addresses.Count);
+            Assert.Equal(8, addresses.Count);
             Assert.Equal("192.168.31.8:5280", addresses[0]);
-            Assert.DoesNotContain("192.168.31.1:5280", addresses);
+            Assert.Contains("192.168.31.1:5280", addresses);
         }
         finally
         {

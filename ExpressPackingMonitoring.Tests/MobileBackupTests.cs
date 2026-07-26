@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using ExpressPackingMonitoring.Config;
 using ExpressPackingMonitoring.Data;
 using ExpressPackingMonitoring.Services;
@@ -454,6 +455,10 @@ public sealed class MobileBackupTests
         {
             var receivers = new MobileOrderReceiverRegistry(Path.Combine(stateDirectory, "order-receivers.json"));
             receivers.Register(IPAddress.Parse("192.168.31.205"));
+            string registryPath = Path.Combine(stateDirectory, "order-receivers.json");
+            JsonArray registryEntries = JsonNode.Parse(File.ReadAllText(registryPath))!.AsArray();
+            registryEntries[0]!["LastSeenUtc"] = DateTime.UtcNow.AddMinutes(-6);
+            File.WriteAllText(registryPath, registryEntries.ToJsonString());
 
             using var database = new VideoDatabase(Path.Combine(directory, "videos.db"));
             using var server = new WebServer(
@@ -466,6 +471,19 @@ public sealed class MobileBackupTests
                 mobileBackupStateDirectory: stateDirectory);
             server.Start();
             using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
+
+            using JsonDocument activeDevices = await client.GetFromJsonAsync<JsonDocument>(
+                "/api/recording-devices",
+                TestContext.Current.CancellationToken) ?? throw new InvalidOperationException();
+            using JsonDocument knownDevices = await client.GetFromJsonAsync<JsonDocument>(
+                "/api/recording-devices?scope=known",
+                TestContext.Current.CancellationToken) ?? throw new InvalidOperationException();
+            Assert.Single(activeDevices.RootElement.GetProperty("devices").EnumerateArray());
+            Assert.Equal(2, knownDevices.RootElement.GetProperty("devices").GetArrayLength());
+            Assert.Contains(
+                knownDevices.RootElement.GetProperty("devices").EnumerateArray(),
+                device => device.GetProperty("address").GetString() == "http://192.168.31.205:5280"
+                    && !device.GetProperty("online").GetBoolean());
 
             string script = await client.GetStringAsync(
                 $"/kuaidizs-order-push.user.js?connect=127.0.0.1:{port}",

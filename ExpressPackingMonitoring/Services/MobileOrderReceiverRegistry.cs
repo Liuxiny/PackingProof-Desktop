@@ -11,7 +11,6 @@ namespace ExpressPackingMonitoring.Services;
 internal sealed class MobileOrderReceiverRegistry
 {
     internal const int OrderReceiverPort = 5280;
-    private const int MaxAddresses = 7;
     private static readonly TimeSpan Retention = TimeSpan.FromDays(90);
     private static readonly TimeSpan ActiveRetention = TimeSpan.FromMinutes(5);
     private readonly string _path;
@@ -81,10 +80,8 @@ internal sealed class MobileOrderReceiverRegistry
                 Capabilities = normalizedCapabilities
             };
             _entries.Insert(0, entry);
-            if (_entries.Count > MaxAddresses)
-                _entries.RemoveRange(MaxAddresses, _entries.Count - MaxAddresses);
             try { Save(); } catch { }
-            return ToInfo(entry);
+            return ToInfo(entry, online: true);
         }
     }
 
@@ -96,7 +93,7 @@ internal sealed class MobileOrderReceiverRegistry
             return _entries
                 .Where(item => now - item.LastSeenUtc <= Retention)
                 .OrderByDescending(item => item.LastSeenUtc)
-                .Select(item => $"{item.Address}:{OrderReceiverPort}")
+                .Select(item => $"{item.Address}:{NormalizePort(item.Port)}")
                 .ToArray();
         }
     }
@@ -112,7 +109,20 @@ internal sealed class MobileOrderReceiverRegistry
             return _entries
                 .Where(item => now - item.LastSeenUtc <= ActiveRetention)
                 .OrderByDescending(item => item.LastSeenUtc)
-                .Select(ToInfo)
+                .Select(item => ToInfo(item, online: true))
+                .ToArray();
+        }
+    }
+
+    internal IReadOnlyList<MobileOrderReceiverInfo> GetKnownRecordingDevices()
+    {
+        lock (_sync)
+        {
+            DateTime now = _utcNow();
+            return _entries
+                .Where(item => now - item.LastSeenUtc <= Retention)
+                .OrderByDescending(item => item.LastSeenUtc)
+                .Select(item => ToInfo(item, now - item.LastSeenUtc <= ActiveRetention))
                 .ToArray();
         }
     }
@@ -146,15 +156,18 @@ internal sealed class MobileOrderReceiverRegistry
             && number > 0;
     }
 
-    private static MobileOrderReceiverInfo ToInfo(Entry item) => new(
+    private static MobileOrderReceiverInfo ToInfo(Entry item, bool online) => new(
         item.NodeId,
         item.NodeName,
         item.Address,
-        item.Port is > 0 and <= 65535 ? item.Port : OrderReceiverPort,
+        NormalizePort(item.Port),
         item.Capabilities?.Length > 0
             ? item.Capabilities
             : [PackingProofCapabilities.Recording, PackingProofCapabilities.OrderReceiver],
-        Online: true);
+        Online: online);
+
+    private static int NormalizePort(int port) =>
+        port is > 0 and <= 65535 ? port : OrderReceiverPort;
 
     internal static string GetDefaultPath() =>
         Path.Combine(AppPaths.CacheDir, "mobile-backup", "order-receivers.json");
