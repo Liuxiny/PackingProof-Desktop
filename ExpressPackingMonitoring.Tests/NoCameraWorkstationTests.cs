@@ -140,7 +140,7 @@ public sealed class NoCameraWorkstationTests
         string source = ReadRepositoryFile(
             "ExpressPackingMonitoring",
             "Workstations",
-            "PrintWorkstationWindow.xaml.cs");
+            "PrintWorkstationWindow.xaml.cs").ReplaceLineEndings("\n");
 
         int lanReady = source.IndexOf(
             "if (_host.IsLanAvailable)\n                CompleteDeploymentSetup();",
