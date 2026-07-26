@@ -1,4 +1,5 @@
 using ExpressPackingMonitoring.Logging;
+using ExpressPackingMonitoring.Config;
 using System.IO;
 using System.Net.Http;
 using System.Text.Json;
@@ -20,6 +21,8 @@ internal sealed class MobileAppUpdatePolicyProvider
     };
     private const string LatestReleaseApiUrl =
         "https://gitee.com/api/v5/repos/PackingProof/PackingProof-Mobile/releases/latest";
+    internal const string ReleasesUrl =
+        "https://gitee.com/PackingProof/PackingProof-Mobile/releases";
 
     private readonly object _gate = new();
     private DateTimeOffset _lastAttemptUtc = DateTimeOffset.MinValue;
@@ -28,11 +31,16 @@ internal sealed class MobileAppUpdatePolicyProvider
 
     internal static MobileAppUpdatePolicyProvider Shared { get; } = new();
     internal static MobileAppUpdatePolicy MinimumPolicy { get; } = new(
-        SchemaVersion: 1,
+        SchemaVersion: 2,
         MinimumVersion: "0.5.6",
         MinimumBuildNumber: 11006,
         Message: "当前 APP 版本过低，需要更新");
     internal const string RepositoryUrl = "https://gitee.com/PackingProof/PackingProof-Mobile";
+
+    internal MobileAppUpdatePolicyProvider()
+    {
+        _latestRelease = LoadCachedRelease();
+    }
 
     internal MobileAppReleaseInfo? LatestRelease
     {
@@ -87,6 +95,7 @@ internal sealed class MobileAppUpdatePolicyProvider
         MobileAppReleaseInfo release = ParseLatestRelease(json);
         lock (_gate)
             _latestRelease = release;
+        SaveCachedRelease(release);
         return release;
     }
 
@@ -107,7 +116,7 @@ internal sealed class MobileAppUpdatePolicyProvider
             tagName,
             version,
             buildNumber,
-            RepositoryUrl);
+            ReleasesUrl);
     }
 
     internal static bool IsUpdateAvailable(int currentBuildNumber, MobileAppReleaseInfo latestRelease)
@@ -121,6 +130,36 @@ internal sealed class MobileAppUpdatePolicyProvider
     {
         [JsonPropertyName("tag_name")]
         public string TagName { get; set; } = "";
+    }
+
+    private static MobileAppReleaseInfo? LoadCachedRelease()
+    {
+        try
+        {
+            if (!File.Exists(AppPaths.MobileAppUpdateCachePath))
+                return null;
+            return JsonSerializer.Deserialize<MobileAppReleaseInfo>(
+                File.ReadAllText(AppPaths.MobileAppUpdateCachePath));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void SaveCachedRelease(MobileAppReleaseInfo release)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(AppPaths.MobileAppUpdateCachePath)!);
+            File.WriteAllText(
+                AppPaths.MobileAppUpdateCachePath,
+                JsonSerializer.Serialize(release));
+        }
+        catch (Exception ex)
+        {
+            RuntimeLog.Warn("MobileUpdate", $"手机版本缓存保存失败：{ex.Message}");
+        }
     }
 
 }

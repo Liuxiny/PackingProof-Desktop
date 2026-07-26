@@ -85,6 +85,7 @@ namespace ExpressPackingMonitoring.Services
         private readonly ConnectedClientRegistry _connectedClients;
         private readonly MobileAppUpdatePolicyProvider _mobileAppUpdatePolicy =
             MobileAppUpdatePolicyProvider.Shared;
+        private Timer _mobileAppUpdateRefreshTimer;
         private readonly ConcurrentDictionary<string, byte> _notifiedMobileAppUpdates = new();
         private readonly string _mobileBackupComputerId;
         private readonly string _mobileBackupComputerName;
@@ -267,6 +268,11 @@ namespace ExpressPackingMonitoring.Services
                 }
             }
             _mobileAppUpdatePolicy.RefreshInBackground();
+            _mobileAppUpdateRefreshTimer = new Timer(
+                _ => _mobileAppUpdatePolicy.RefreshInBackground(),
+                null,
+                TimeSpan.FromSeconds(ConnectedClientRegistry.HeartbeatIntervalSeconds),
+                TimeSpan.FromSeconds(ConnectedClientRegistry.HeartbeatIntervalSeconds));
             _listenTask = Task.Run(() => ListenLoop(_cts.Token));
         }
 
@@ -858,6 +864,7 @@ namespace ExpressPackingMonitoring.Services
                 _mobileAppUpdatePolicy.RefreshInBackground();
                 NotifyMobileAppUpdateIfNeeded(heartbeat);
                 MobileAppUpdatePolicy updatePolicy = MobileAppUpdatePolicyProvider.MinimumPolicy;
+                MobileAppReleaseInfo latestRelease = _mobileAppUpdatePolicy.LatestRelease;
                 SendJson(ctx, 200, new
                 {
                     ok = true,
@@ -868,7 +875,12 @@ namespace ExpressPackingMonitoring.Services
                         schemaVersion = updatePolicy.SchemaVersion,
                         minimumVersion = updatePolicy.MinimumVersion,
                         minimumBuildNumber = updatePolicy.MinimumBuildNumber,
-                        message = updatePolicy.Message
+                        message = updatePolicy.Message,
+                        latestVersion = latestRelease?.Version ?? "",
+                        latestBuildNumber = latestRelease?.BuildNumber ?? 0,
+                        latestTag = latestRelease?.TagName ?? "",
+                        downloadUrl = latestRelease?.DownloadUrl
+                            ?? MobileAppUpdatePolicyProvider.ReleasesUrl
                     }
                 });
             }
@@ -2680,6 +2692,7 @@ namespace ExpressPackingMonitoring.Services
             if (_disposed) return;
             _disposed = true;
             _cts.Cancel();
+            try { _mobileAppUpdateRefreshTimer?.Dispose(); } catch { }
             foreach (var pending in _pendingOrderLookups.Values)
                 pending.Completion.TrySetResult(new OrderLookupResult { Responded = false });
             _pendingOrderLookups.Clear();

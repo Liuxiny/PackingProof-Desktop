@@ -10,7 +10,7 @@ public sealed class MobileAppUpdatePolicyTests
     {
         MobileAppUpdatePolicy policy = MobileAppUpdatePolicyProvider.MinimumPolicy;
 
-        Assert.Equal(1, policy.SchemaVersion);
+        Assert.Equal(2, policy.SchemaVersion);
         Assert.Equal("0.5.6", policy.MinimumVersion);
         Assert.Equal(11006, policy.MinimumBuildNumber);
         Assert.Equal("当前 APP 版本过低，需要更新", policy.Message);
@@ -26,7 +26,7 @@ public sealed class MobileAppUpdatePolicyTests
         Assert.Equal("0.6.1", release.Version);
         Assert.Equal(12001, release.BuildNumber);
         Assert.Equal(
-            "https://gitee.com/PackingProof/PackingProof-Mobile",
+            "https://gitee.com/PackingProof/PackingProof-Mobile/releases",
             release.DownloadUrl);
     }
 
