@@ -869,18 +869,17 @@ public static class WorkstationNetwork
 
     public static void AskRestart(Window? owner = null)
     {
-        var dialog = new ConfirmDialog(
+        bool shouldRestart = AppDialog.Confirm(
+            owner,
             AppLanguage.Get("RestartMode.Message"),
             AppLanguage.Get("切换用途"),
             confirmText: AppLanguage.Get("立即重启"),
             cancelText: AppLanguage.Get("稍后再说"),
-            isDangerous: false)
+            severity: AppDialogSeverity.Information,
+            isDangerous: false);
+        if (shouldRestart && !TryRestartApplication("workstation-role-change", owner))
         {
-            Owner = owner ?? Application.Current?.MainWindow
-        };
-        if (dialog.ShowDialog() == true && !TryRestartApplication("workstation-role-change", owner))
-        {
-            MessageBox.Show(owner, "自动重启失败，请手动关闭后重新打开程序。", "切换用途", MessageBoxButton.OK, MessageBoxImage.Information);
+            AppDialog.ShowMessage(owner, "自动重启失败，请手动关闭后重新打开程序。", "切换用途", AppDialogSeverity.Information);
         }
     }
 

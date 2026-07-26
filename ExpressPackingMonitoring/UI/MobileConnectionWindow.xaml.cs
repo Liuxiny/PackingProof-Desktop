@@ -53,7 +53,7 @@ public partial class MobileConnectionWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, $"复制网址失败：{ex.Message}", "手机/电脑连接", MessageBoxButton.OK, MessageBoxImage.Warning);
+            AppDialog.ShowMessage(this, $"复制网址失败：{ex.Message}", "手机/电脑连接", AppDialogSeverity.Warning);
         }
     }
 
@@ -62,7 +62,7 @@ public partial class MobileConnectionWindow : Window
         if (WorkstationNetwork.TryOpenUrl(_url, out string error))
             return;
 
-        MessageBox.Show(this, $"打开网页失败：{error}", "手机/电脑连接", MessageBoxButton.OK, MessageBoxImage.Warning);
+        AppDialog.ShowMessage(this, $"打开网页失败：{error}", "手机/电脑连接", AppDialogSeverity.Warning);
     }
 
     private void OpenSettings_Click(object sender, RoutedEventArgs e)

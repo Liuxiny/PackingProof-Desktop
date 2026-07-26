@@ -4,6 +4,7 @@ using ExpressPackingMonitoring.Data;
 using ExpressPackingMonitoring.Config;
 using ExpressPackingMonitoring.Audio;
 using ExpressPackingMonitoring.Services;
+using ExpressPackingMonitoring.UI;
 using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
@@ -696,9 +697,10 @@ namespace ExpressPackingMonitoring.ViewModels
 
                     ShowToast("警告：录制启动失败");
                     SpeakWarning(DefaultSpeechCatalog.RecordingFailed);
-                    MessageBox.Show(
+                    AppDialog.ShowMessage(
+                        null,
                         $"当前设置的编码器无法完成录制，视频未保存。\n\n请求编码器: {EncodingHelper.GetEncoderLabel(requestedEncoder)}\n错误详情: {errorDetail}\n\n已自动尝试 CPU 软编码；若仍失败，请检查摄像头画面和存储路径。",
-                        "录制失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        "录制失败", AppDialogSeverity.Warning);
                 });
             }
         }

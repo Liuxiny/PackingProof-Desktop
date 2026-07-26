@@ -165,7 +165,7 @@ public partial class ViewerClientWindow : Window
     {
         string address = _boundHost?.Address ?? _config.LastKnownHostAddress;
         if (!WorkstationNetwork.TryOpenUrl(address, out string error))
-            MessageBox.Show(this, error, "打开录像网页失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            AppDialog.ShowMessage(this, error, "打开录像网页失败", AppDialogSeverity.Error);
     }
 
     private async void SearchHosts_Click(object sender, RoutedEventArgs e) => await SearchHostsAsync();
@@ -177,14 +177,14 @@ public partial class ViewerClientWindow : Window
         string address = _boundHost?.Address ?? _config.LastKnownHostAddress;
         if (string.IsNullOrWhiteSpace(address))
         {
-            MessageBox.Show(this, "请先搜索并绑定 PackingProof 主机", "安装快递助手联动",
-                MessageBoxButton.OK, MessageBoxImage.Information);
+            AppDialog.ShowMessage(this, "请先搜索并绑定 PackingProof 主机", "安装快递助手联动",
+                AppDialogSeverity.Information);
             return;
         }
 
         if (!UserscriptGuideNavigation.TryOpen(address, out string error))
         {
-            MessageBox.Show(this, error, "安装快递助手联动失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            AppDialog.ShowMessage(this, error, "安装快递助手联动失败", AppDialogSeverity.Error);
             return;
         }
 
@@ -204,15 +204,14 @@ public partial class ViewerClientWindow : Window
         {
             WorkstationNetwork.TestOrderBroadcastResult result =
                 await WorkstationNetwork.SendTestOrderToRecordingDevicesAsync(_boundHost.Address);
-            MessageBoxImage image = result.HasTargets && result.FailureCount == 0
-                ? MessageBoxImage.Information
-                : MessageBoxImage.Warning;
-            MessageBox.Show(
+            AppDialogSeverity severity = result.HasTargets && result.FailureCount == 0
+                ? AppDialogSeverity.Information
+                : AppDialogSeverity.Warning;
+            AppDialog.ShowMessage(
                 this,
                 WorkstationNetwork.FormatTestOrderBroadcastResult(result),
                 "发送测试订单",
-                MessageBoxButton.OK,
-                image);
+                severity);
         }
         finally
         {
@@ -242,8 +241,8 @@ public partial class ViewerClientWindow : Window
                 selector.SelectedPreset,
                 StringComparison.OrdinalIgnoreCase))
         {
-            MessageBox.Show(this, "当前已经是连接已有主机用途", "切换用途",
-                MessageBoxButton.OK, MessageBoxImage.Information);
+            AppDialog.ShowMessage(this, "当前已经是连接已有主机用途", "切换用途",
+                AppDialogSeverity.Information);
             return;
         }
 
@@ -262,8 +261,8 @@ public partial class ViewerClientWindow : Window
                 out AppConfig savedConfig,
                 out string error))
         {
-            MessageBox.Show(this, $"用途保存失败：{error}", "切换用途",
-                MessageBoxButton.OK, MessageBoxImage.Error);
+            AppDialog.ShowMessage(this, $"用途保存失败：{error}", "切换用途",
+                AppDialogSeverity.Error);
             return;
         }
 

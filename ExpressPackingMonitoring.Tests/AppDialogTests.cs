@@ -36,14 +36,49 @@ public sealed class AppDialogTests
         Assert.True(Enum.IsDefined(severity));
     }
 
+    [Fact]
+    public void DesktopCode_UsesOnlyTheUnifiedDialogEntryPoint()
+    {
+        string projectDirectory = FindRepositoryPath("ExpressPackingMonitoring");
+        string[] sourceFiles = Directory.GetFiles(projectDirectory, "*.cs", SearchOption.AllDirectories)
+            .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
+                && !path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        foreach (string sourceFile in sourceFiles)
+        {
+            string source = File.ReadAllText(sourceFile);
+            Assert.DoesNotContain("MessageBox.Show", source, StringComparison.Ordinal);
+
+            if (!sourceFile.EndsWith(
+                    Path.Combine("UI", "AppDialog.cs"),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                Assert.DoesNotContain("new ConfirmDialog", source, StringComparison.Ordinal);
+            }
+        }
+
+        string settingsSource = ReadRepositoryFile("ExpressPackingMonitoring", "UI", "SettingsWindow.xaml.cs");
+        Assert.Contains("\"移除\"", settingsSource, StringComparison.Ordinal);
+        Assert.Contains("\"继续保存\"", settingsSource, StringComparison.Ordinal);
+        Assert.Contains("\"返回设置\"", settingsSource, StringComparison.Ordinal);
+        Assert.Contains("\"使用建议方案\"", settingsSource, StringComparison.Ordinal);
+        Assert.Contains("\"取消保存\"", settingsSource, StringComparison.Ordinal);
+    }
+
     private static string ReadRepositoryFile(params string[] parts)
+        => File.ReadAllText(FindRepositoryPath(parts));
+
+    private static string FindRepositoryPath(params string[] parts)
     {
         DirectoryInfo? directory = new(AppContext.BaseDirectory);
         while (directory != null)
         {
             string path = Path.Combine([directory.FullName, .. parts]);
             if (File.Exists(path))
-                return File.ReadAllText(path);
+                return path;
+            if (Directory.Exists(path))
+                return path;
             directory = directory.Parent;
         }
 

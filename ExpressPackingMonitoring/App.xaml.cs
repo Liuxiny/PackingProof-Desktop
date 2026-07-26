@@ -26,11 +26,11 @@ namespace ExpressPackingMonitoring
             base.OnStartup(e);
             if (!WorkstationNetwork.WaitForRestartParentExit(e.Args, 15000, out string restartWaitError))
             {
-                MessageBox.Show(
+                AppDialog.ShowMessage(
+                    null,
                     restartWaitError,
                     "切换用途失败",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
+                    AppDialogSeverity.Error);
                 Shutdown(1);
                 return;
             }
@@ -139,11 +139,11 @@ namespace ExpressPackingMonitoring
 
                 if (!WorkstationConfigStore.TrySave(configuredRecordingHost, out string saveError))
                 {
-                    MessageBox.Show(
+                    AppDialog.ShowMessage(
+                        null,
                         $"配置保存失败，程序无法安全启动。\n\n{saveError}",
                         "启动失败",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Error);
+                        AppDialogSeverity.Error);
                     Shutdown(1);
                     return;
                 }
@@ -203,11 +203,11 @@ namespace ExpressPackingMonitoring
                 return true;
             }
 
-            MessageBox.Show(
+            AppDialog.ShowMessage(
+                null,
                 $"配置保存失败，程序无法安全启动。\n\n请检查磁盘空间和配置目录权限。\n{error}",
                 "启动失败",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+                AppDialogSeverity.Error);
             RuntimeLog.RecordShutdownRequest("StartupConfigSaveFailed", error);
             Shutdown(1);
             return false;

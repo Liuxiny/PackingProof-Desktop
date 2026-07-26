@@ -568,7 +568,7 @@ namespace ExpressPackingMonitoring.UI
 
             if (!TryPrepareStoragePath(selectedPath, out string errorMessage))
             {
-                MessageBox.Show($"无法创建或写入目录：\n{selectedPath}\n\n原因：{errorMessage}", "存储错误", MessageBoxButton.OK, MessageBoxImage.Warning);
+                AppDialog.ShowMessage(this, $"无法创建或写入目录：\n{selectedPath}\n\n原因：{errorMessage}", "存储错误", AppDialogSeverity.Warning);
                 return;
             }
 
@@ -587,7 +587,7 @@ namespace ExpressPackingMonitoring.UI
 
             if (Config.StorageLocations.Any(x => string.Equals(x.Path, selectedPath, StringComparison.OrdinalIgnoreCase)))
             {
-                MessageBox.Show("该路径已在列表中。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                AppDialog.ShowMessage(this, "该路径已在列表中。", "提示", AppDialogSeverity.Information);
                 return;
             }
 
@@ -597,17 +597,17 @@ namespace ExpressPackingMonitoring.UI
                 string.Equals(GetStorageRoot(x.Path), selectedRoot, StringComparison.OrdinalIgnoreCase));
             if (sameDisk != null)
             {
-                MessageBox.Show(
+                AppDialog.ShowMessage(
+                    this,
                     $"同一个磁盘已经添加过：\n{sameDisk.Path}\n\n请换一个磁盘，或直接调整已有路径的容量和列表顺序。",
                     "磁盘已存在",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
+                    AppDialogSeverity.Information);
                 return;
             }
 
             if (!TryPrepareStoragePath(selectedPath, out string errorMessage))
             {
-                MessageBox.Show($"无法创建或写入目录：\n{selectedPath}\n\n原因：{errorMessage}", "存储错误", MessageBoxButton.OK, MessageBoxImage.Warning);
+                AppDialog.ShowMessage(this, $"无法创建或写入目录：\n{selectedPath}\n\n原因：{errorMessage}", "存储错误", AppDialogSeverity.Warning);
                 return;
             }
 
@@ -661,13 +661,19 @@ namespace ExpressPackingMonitoring.UI
             {
                 if (Config.StorageLocations.Count <= 1)
                 {
-                    MessageBox.Show("至少需要保留一个存储路径。", "警告", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    AppDialog.ShowMessage(this, "至少需要保留一个存储路径。", "警告", AppDialogSeverity.Warning);
                     return;
                 }
 
-                var result = MessageBox.Show($"确定要移除路径: {selected.Path} 吗？\n注意：此操作不会删除物理文件，但系统将不再管理该目录。",
-                                             "确认移除", MessageBoxButton.YesNo, MessageBoxImage.Question);
-                if (result == MessageBoxResult.Yes)
+                bool shouldRemove = AppDialog.Confirm(
+                    this,
+                    $"确定要移除路径: {selected.Path} 吗？\n注意：此操作不会删除物理文件，但系统将不再管理该目录。",
+                    "确认移除",
+                    "移除",
+                    "取消",
+                    AppDialogSeverity.Warning,
+                    isDangerous: true);
+                if (shouldRemove)
                 {
                     int selectedIndex = StorageDataGrid.SelectedIndex;
                     Config.StorageLocations.Remove(selected);
@@ -682,7 +688,7 @@ namespace ExpressPackingMonitoring.UI
             }
             else
             {
-                MessageBox.Show("请先在列表中选中要移除的行。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                AppDialog.ShowMessage(this, "请先在列表中选中要移除的行。", "提示", AppDialogSeverity.Information);
             }
         }
 
@@ -792,8 +798,15 @@ namespace ExpressPackingMonitoring.UI
                 Config.EnableAudioRecording &&
                 string.IsNullOrEmpty(Config.AudioDeviceName))
             {
-                var mbr = MessageBox.Show("已开启录制声音，但未选择麦克风。录制可能会失败或没有声音。\n\n是否继续保存？", "音频提醒", MessageBoxButton.YesNo, MessageBoxImage.Question);
-                if (mbr == MessageBoxResult.No) return false;
+                bool shouldContinue = AppDialog.Confirm(
+                    this,
+                    "已开启录制声音，但未选择麦克风。录制可能会失败或没有声音。\n\n是否继续保存？",
+                    "音频提醒",
+                    "继续保存",
+                    "返回设置",
+                    AppDialogSeverity.Warning,
+                    isDangerous: false);
+                if (!shouldContinue) return false;
             }
 
             // 1. 强制提交 DataGrid 中的未完成编辑
@@ -883,11 +896,11 @@ namespace ExpressPackingMonitoring.UI
                 _originalTheme = Config.Theme;
                 if (_originalLanguage != Config.Language)
                 {
-                    MessageBox.Show(
+                    AppDialog.ShowMessage(
+                        this,
                         AppLanguage.Get("RestartSaved"),
                         AppLanguage.Get("RestartRequired"),
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Information);
+                        AppDialogSeverity.Information);
                     _originalLanguage = Config.Language;
                 }
             }
@@ -937,11 +950,11 @@ namespace ExpressPackingMonitoring.UI
                 CultureInfo.CurrentCulture,
                 AppLanguage.Translate("不休眠时段 {0} 请填写完整的 HH:mm 开始和结束时间，或全部留空"),
                 periodNumber);
-            MessageBox.Show(
+            AppDialog.ShowMessage(
+                this,
                 message,
                 AppLanguage.Translate("时间格式错误"),
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
+                AppDialogSeverity.Warning);
             return false;
         }
 
@@ -1119,14 +1132,19 @@ namespace ExpressPackingMonitoring.UI
             // 该编解码器完全不可用：保存前直接改成可用方案
             if (codec != EncodingHelper.GetCodecFromEncoder(fallbackEncoder))
             {
-                var result = MessageBox.Show(
+                bool useFallback = AppDialog.Confirm(
+                    this,
                     $"当前设备或 FFmpeg 不支持 {EncodingHelper.GetCodecLabel(codec)}。\n\n" +
                     $"请求方案: {requestedLabel}\n" +
                     $"建议切换到: {fallbackLabel}\n\n" +
                     $"是否在保存时自动改为 {fallbackLabel}？",
-                    "编码器不可用", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                    "编码器不可用",
+                    "使用建议方案",
+                    "取消保存",
+                    AppDialogSeverity.Warning,
+                    isDangerous: false);
 
-                if (result != MessageBoxResult.Yes)
+                if (!useFallback)
                     return false;
 
                 EncodingHelper.ApplyEncoderSelectionToConfig(Config, fallbackEncoder);
@@ -1135,11 +1153,12 @@ namespace ExpressPackingMonitoring.UI
             }
 
             // 同一编解码器可用，但会回退到别的实现
-            MessageBox.Show(
+            AppDialog.ShowMessage(
+                this,
                 $"当前选择的 {requestedLabel} 不可用。\n\n" +
                 $"保存后实际会回退到: {fallbackLabel}\n\n" +
                 $"设置将按可用方案保存。",
-                "编码器将自动回退", MessageBoxButton.OK, MessageBoxImage.Information);
+                "编码器将自动回退", AppDialogSeverity.Information);
 
             EncodingHelper.ApplyEncoderSelectionToConfig(Config, fallbackEncoder);
             SyncEncoderComboboxes(fallbackEncoder);
@@ -1203,7 +1222,7 @@ namespace ExpressPackingMonitoring.UI
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"无法打开链接：{ex.Message}", "打开链接失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+                AppDialog.ShowMessage(null, $"无法打开链接：{ex.Message}", "打开链接失败", AppDialogSeverity.Warning);
             }
         }
 
@@ -1268,7 +1287,7 @@ namespace ExpressPackingMonitoring.UI
                     if (Context.ShowToast != null)
                         Context.ShowToast("打开下载页面失败");
                     else
-                        MessageBox.Show(this, "打开下载页面失败", "检查更新", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        AppDialog.ShowMessage(this, "打开下载页面失败", "检查更新", AppDialogSeverity.Warning);
                 }
             }
         }

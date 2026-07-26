@@ -97,7 +97,7 @@ namespace ExpressPackingMonitoring.UI
                     catch (Exception ex)
                     {
                         if (requestVersion == _refreshRequestVersion && !_isClosed)
-                            MessageBox.Show($"加载统计数据失败：{ex.Message}", "统计错误", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            AppDialog.ShowMessage(this, $"加载统计数据失败：{ex.Message}", "统计错误", AppDialogSeverity.Warning);
                         continue;
                     }
 

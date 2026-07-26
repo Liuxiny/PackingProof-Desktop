@@ -195,7 +195,7 @@ namespace ExpressPackingMonitoring.UI
                         _totalVideos = 0;
                         _currentPage = 1;
                         ShowCurrentPage();
-                        MessageBox.Show($"加载回放列表失败：{ex.Message}", "回放错误", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        AppDialog.ShowMessage(this, $"加载回放列表失败：{ex.Message}", "回放错误", AppDialogSeverity.Warning);
                         continue;
                     }
 
@@ -486,18 +486,20 @@ namespace ExpressPackingMonitoring.UI
             {
                 string reason = string.IsNullOrEmpty(video.DeleteReason) ? "系统清理" : video.DeleteReason;
                 string time = video.DeletedAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "未知";
-                MessageBox.Show(
+                AppDialog.ShowMessage(
+                    this,
                     $"该视频已被覆盖删除，无法播放。\n\n单号: {video.OrderId}\n删除原因: {reason}\n删除时间: {time}\n原始大小: {video.FileSize}\n录制时长: {video.Duration}",
-                    "视频已删除", MessageBoxButton.OK, MessageBoxImage.Information);
+                    "视频已删除", AppDialogSeverity.Information);
                 UpdateLocateButtonState(video);
                 return;
             }
 
             if (video.IsMissing)
             {
-                MessageBox.Show(
+                AppDialog.ShowMessage(
+                    this,
                     $"视频文件已被外部删除或移动，无法播放。\n\n单号: {video.OrderId}\n路径: {video.FullPath}\n原始大小: {video.FileSize}\n录制时长: {video.Duration}",
-                    "文件丢失", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    "文件丢失", AppDialogSeverity.Warning);
                 UpdateLocateButtonState(video);
                 return;
             }
@@ -544,7 +546,7 @@ namespace ExpressPackingMonitoring.UI
             catch (Exception ex)
             {
                 UpdatePlayState(false);
-                MessageBox.Show($"视频播放失败：{ex.Message}", "播放错误", MessageBoxButton.OK, MessageBoxImage.Warning);
+                AppDialog.ShowMessage(this, $"视频播放失败：{ex.Message}", "播放错误", AppDialogSeverity.Warning);
             }
             finally
             {
@@ -576,7 +578,7 @@ namespace ExpressPackingMonitoring.UI
         {
             if (VideoList.SelectedItem is not VideoItem video || video.IsUnavailable || string.IsNullOrWhiteSpace(video.FullPath))
             {
-                MessageBox.Show("请先选择一个可用视频。", "定位文件", MessageBoxButton.OK, MessageBoxImage.Information);
+                AppDialog.ShowMessage(this, "请先选择一个可用视频。", "定位文件", AppDialogSeverity.Information);
                 return;
             }
 
@@ -587,7 +589,7 @@ namespace ExpressPackingMonitoring.UI
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"无法打开文件管理器：{ex.Message}", "定位失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+                AppDialog.ShowMessage(this, $"无法打开文件管理器：{ex.Message}", "定位失败", AppDialogSeverity.Warning);
             }
         }
 
@@ -634,7 +636,7 @@ namespace ExpressPackingMonitoring.UI
             {
                 _timer.Stop();
                 UpdatePlayState(false);
-                MessageBox.Show("播放器解码失败，请确认视频文件完整。", "播放错误", MessageBoxButton.OK, MessageBoxImage.Warning);
+                AppDialog.ShowMessage(this, "播放器解码失败，请确认视频文件完整。", "播放错误", AppDialogSeverity.Warning);
             });
         }
 
@@ -721,7 +723,7 @@ namespace ExpressPackingMonitoring.UI
             catch (Exception ex)
             {
                 _playerInitializationFailed = true;
-                MessageBox.Show($"播放器初始化失败：{ex.Message}\n\n回放列表仍可查看，但当前机器暂时无法内置播放。", "回放错误", MessageBoxButton.OK, MessageBoxImage.Warning);
+                AppDialog.ShowMessage(this, $"播放器初始化失败：{ex.Message}\n\n回放列表仍可查看，但当前机器暂时无法内置播放。", "回放错误", AppDialogSeverity.Warning);
                 return false;
             }
             finally

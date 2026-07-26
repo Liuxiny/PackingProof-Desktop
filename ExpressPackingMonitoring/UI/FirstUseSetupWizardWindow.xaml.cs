@@ -268,15 +268,15 @@ public partial class FirstUseSetupWizardWindow : Window
             if (CameraComboBox.SelectedItem is not CameraInfo selectedCamera
                 || string.IsNullOrWhiteSpace(selectedCamera.Moniker))
             {
-                MessageBox.Show(this, "录制主机必须先选择可用摄像头", "摄像头尚未配置",
-                    MessageBoxButton.OK, MessageBoxImage.Information);
+                AppDialog.ShowMessage(this, "录制主机必须先选择可用摄像头", "摄像头尚未配置",
+                    AppDialogSeverity.Information);
                 ShowStep(1);
                 return;
             }
             if (MicComboBox.SelectedItem is not MicInfo selectedMic || !IsAvailableMic(selectedMic))
             {
-                MessageBox.Show(this, "录制主机必须先选择可用麦克风", "麦克风尚未配置",
-                    MessageBoxButton.OK, MessageBoxImage.Information);
+                AppDialog.ShowMessage(this, "录制主机必须先选择可用麦克风", "麦克风尚未配置",
+                    AppDialogSeverity.Information);
                 ShowStep(2);
                 return;
             }

@@ -153,12 +153,11 @@ internal sealed class WindowCloseBehaviorController : IDisposable
             }
             else
             {
-                MessageBox.Show(
+                AppDialog.ShowMessage(
                     _owner,
                     $"关闭行为保存失败，下次仍会询问：{error}",
                     "设置保存失败",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
+                    AppDialogSeverity.Warning);
             }
         }
 

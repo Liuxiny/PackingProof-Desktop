@@ -467,10 +467,15 @@ namespace ExpressPackingMonitoring.UI
             if (vm != null && vm.IsRecording && !WorkstationNetwork.IsRestartPending)
             {
                 string msg = "当前正在录制，退出将自动保存当前视频。\n确定要退出程序吗？";
-                var dialog = new ConfirmDialog(msg, "正在录制 - 退出确认") { Owner = this };
-                
                 // 如果用户在弹窗中点击了“取消”，则拦截退出事件
-                if (dialog.ShowDialog() != true)
+                if (!AppDialog.Confirm(
+                        this,
+                        msg,
+                        "正在录制 - 退出确认",
+                        "退出并保存",
+                        "继续录制",
+                        AppDialogSeverity.Warning,
+                        isDangerous: true))
                 {
                     e.Cancel = true;
                     return;
@@ -507,7 +512,7 @@ namespace ExpressPackingMonitoring.UI
             {
                 _shutdownInProgress = false;
                 WorkstationNetwork.CancelPendingRestart();
-                MessageBox.Show("录像保存失败，请检查日志", "退出已取消", MessageBoxButton.OK, MessageBoxImage.Warning);
+                AppDialog.ShowMessage(this, "录像保存失败，请检查日志", "退出已取消", AppDialogSeverity.Warning);
                 return;
             }
 
@@ -545,15 +550,14 @@ namespace ExpressPackingMonitoring.UI
             {
                 WorkstationNetwork.TestOrderBroadcastResult result =
                     await WorkstationNetwork.SendTestOrderToRecordingDevicesAsync(viewModel.MonitorAccessAddress);
-                MessageBoxImage image = result.HasTargets && result.FailureCount == 0
-                    ? MessageBoxImage.Information
-                    : MessageBoxImage.Warning;
-                MessageBox.Show(
+                AppDialogSeverity severity = result.HasTargets && result.FailureCount == 0
+                    ? AppDialogSeverity.Information
+                    : AppDialogSeverity.Warning;
+                AppDialog.ShowMessage(
                     this,
                     WorkstationNetwork.FormatTestOrderBroadcastResult(result),
                     "发送测试订单",
-                    MessageBoxButton.OK,
-                    image);
+                    severity);
             }
             finally
             {

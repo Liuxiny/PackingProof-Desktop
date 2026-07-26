@@ -798,7 +798,7 @@ namespace ExpressPackingMonitoring.ViewModels
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"数据库初始化失败，部分功能将不可用：{ex.Message}", "启动警告", MessageBoxButton.OK, MessageBoxImage.Warning);
+                AppDialog.ShowMessage(null, $"数据库初始化失败，部分功能将不可用：{ex.Message}", "启动警告", AppDialogSeverity.Warning);
             }
         }
 
@@ -2080,7 +2080,7 @@ namespace ExpressPackingMonitoring.ViewModels
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"无法访问存储路径：{ex.Message}", "存储错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                AppDialog.ShowMessage(null, $"无法访问存储路径：{ex.Message}", "存储错误", AppDialogSeverity.Error);
                 return;
             }
 
@@ -2098,7 +2098,7 @@ namespace ExpressPackingMonitoring.ViewModels
             catch (Exception ex)
             {
                 _playbackWindow = null;
-                MessageBox.Show($"打开回放窗口失败：{ex.Message}", "回放错误", MessageBoxButton.OK, MessageBoxImage.Warning);
+                AppDialog.ShowMessage(null, $"打开回放窗口失败：{ex.Message}", "回放错误", AppDialogSeverity.Warning);
             }
         }
 
