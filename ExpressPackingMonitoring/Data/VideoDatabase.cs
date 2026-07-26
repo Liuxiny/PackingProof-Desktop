@@ -908,7 +908,8 @@ namespace ExpressPackingMonitoring.Data
             int pageSize,
             bool includeDeleted = false,
             string sourceType = "",
-            string deviceId = "")
+            string deviceId = "",
+            string sourceDeviceName = "")
         {
             return QueryVideosPaged(
                 startDate,
@@ -919,7 +920,8 @@ namespace ExpressPackingMonitoring.Data
                 includeDeleted,
                 VideoSearchMode.BroadContains,
                 sourceType,
-                deviceId);
+                deviceId,
+                sourceDeviceName);
         }
 
         internal PagedVideoResult QueryVideosPaged(
@@ -931,7 +933,8 @@ namespace ExpressPackingMonitoring.Data
             bool includeDeleted,
             VideoSearchMode searchMode,
             string sourceType = "",
-            string deviceId = "")
+            string deviceId = "",
+            string sourceDeviceName = "")
         {
             page = Math.Max(1, page);
             pageSize = Math.Clamp(pageSize, 1, 100);
@@ -939,6 +942,7 @@ namespace ExpressPackingMonitoring.Data
             string normalizedKeyword = keyword?.Trim() ?? "";
             string normalizedSourceType = sourceType?.Trim().ToLowerInvariant() ?? "";
             string normalizedDeviceId = deviceId?.Trim() ?? "";
+            string normalizedSourceDeviceName = sourceDeviceName?.Trim() ?? "";
             if (normalizedSourceType.Length == 0 && normalizedDeviceId.Length > 0)
                 normalizedSourceType = "external";
 
@@ -968,6 +972,11 @@ namespace ExpressPackingMonitoring.Data
                 {
                     whereSql += " AND SourceDeviceId = @deviceId";
                     countCmd.Parameters.AddWithValue("@deviceId", normalizedDeviceId);
+                }
+                else if (normalizedSourceType == "external" && normalizedSourceDeviceName.Length > 0)
+                {
+                    whereSql += " AND SourceDeviceName = @sourceDeviceName";
+                    countCmd.Parameters.AddWithValue("@sourceDeviceName", normalizedSourceDeviceName);
                 }
 
                 if (normalizedKeyword.Length > 0)
@@ -1029,6 +1038,8 @@ namespace ExpressPackingMonitoring.Data
                     cmd.Parameters.AddWithValue("@sourceType", normalizedSourceType);
                 if (normalizedSourceType == "external" && normalizedDeviceId.Length > 0)
                     cmd.Parameters.AddWithValue("@deviceId", normalizedDeviceId);
+                else if (normalizedSourceType == "external" && normalizedSourceDeviceName.Length > 0)
+                    cmd.Parameters.AddWithValue("@sourceDeviceName", normalizedSourceDeviceName);
 
                 var records = new List<VideoRecord>(pageSize);
                 using var reader = cmd.ExecuteReader();

@@ -44,16 +44,20 @@ public sealed class VideoDatabaseTests
             database.InsertVideoRecord("PC", "发货", "", "", Path.Combine(tempDirectory, "pc.mp4"), DateTime.Now);
             database.InsertMobileBackupRecord("A", Path.Combine(tempDirectory, "a.mp4"), 1, DateTime.Now, 3, "phone-a", "手机1", "session-a", "sha-a");
             database.InsertMobileBackupRecord("B", Path.Combine(tempDirectory, "b.mp4"), 1, DateTime.Now, 3, "phone-b", "手机2", "session-b", "sha-b");
+            database.InsertMobileBackupRecord("C", Path.Combine(tempDirectory, "c.mp4"), 1, DateTime.Now, 3, "legacy-phone-b", "手机2", "session-c", "sha-c");
 
             PagedVideoResult computer = database.QueryVideosPaged(
                 null, null, null, 1, 20, sourceType: "pc");
             PagedVideoResult phone = database.QueryVideosPaged(
                 null, null, null, 1, 20, sourceType: "external", deviceId: "phone-b");
+            PagedVideoResult phoneName = database.QueryVideosPaged(
+                null, null, null, 1, 20, sourceType: "external", sourceDeviceName: "手机2");
             IReadOnlyList<VideoSourceInfo> sources = database.GetVideoSources();
 
             Assert.Equal("PC", Assert.Single(computer.Records).OrderId);
             Assert.Equal("phone-b", Assert.Single(phone.Records).SourceDeviceId);
-            Assert.Equal(3, sources.Count);
+            Assert.Equal(2, phoneName.Total);
+            Assert.Equal(4, sources.Count);
             Assert.Contains(sources, source => source.SourceType == "pc");
             Assert.Contains(sources, source => source.DeviceId == "phone-a" && source.DeviceName == "手机1");
             Assert.Contains(sources, source => source.DeviceId == "phone-b" && source.DeviceName == "手机2");

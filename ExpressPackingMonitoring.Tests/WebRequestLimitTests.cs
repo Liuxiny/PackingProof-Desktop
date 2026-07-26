@@ -112,7 +112,8 @@ public sealed class WebRequestLimitTests
         Assert.Contains("id=\"videoSource\"", html);
         Assert.Contains("<option value=\"\">全部设备</option>", html);
         Assert.Contains("fetch('/api/video-sources'", html);
-        Assert.Contains("sourceType,deviceId,page:currentPage", html);
+        Assert.Contains("select.replaceChildren(new Option('全部设备',''))", html);
+        Assert.Contains("sourceType,deviceId,sourceName,page:currentPage", html);
     }
 
     [Fact]

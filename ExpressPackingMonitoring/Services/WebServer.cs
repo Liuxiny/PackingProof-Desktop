@@ -1787,6 +1787,7 @@ namespace ExpressPackingMonitoring.Services
             int page = int.TryParse(qs["page"], out var p) ? Math.Max(1, p) : 1;
             int pageSize = int.TryParse(qs["size"], out var s) ? Math.Clamp(s, 1, 100) : 50;
             string deviceId = qs["deviceId"] ?? "";
+            string sourceDeviceName = qs["sourceName"] ?? "";
             string sourceType = qs["sourceType"] ?? "";
 
             var result = _db.QueryVideosPaged(
@@ -1796,7 +1797,8 @@ namespace ExpressPackingMonitoring.Services
                 page,
                 pageSize,
                 sourceType: sourceType,
-                deviceId: deviceId);
+                deviceId: deviceId,
+                sourceDeviceName: sourceDeviceName);
             int deviceTotal = result.Total;
             string requestingDeviceId = ctx.Request.Headers["X-EPM-Device-Id"]?.Trim() ?? "";
             if (string.IsNullOrWhiteSpace(deviceId) && !string.IsNullOrWhiteSpace(requestingDeviceId))
@@ -1868,6 +1870,18 @@ namespace ExpressPackingMonitoring.Services
                             ? ResolveVideoSourceName(source.DeviceId, source.DeviceName)
                             : "电脑",
                     videoCount = source.VideoCount
+                })
+                .GroupBy(
+                    source => source.sourceType == "external"
+                        ? $"{source.sourceType}:{source.name}"
+                        : "pc:",
+                    StringComparer.OrdinalIgnoreCase)
+                .Select(group => new
+                {
+                    sourceType = group.First().sourceType,
+                    deviceId = group.Count() == 1 ? group.First().deviceId : "",
+                    name = group.First().name,
+                    videoCount = group.Sum(source => source.videoCount)
                 });
             SendJson(ctx, 200, new { data });
         }
