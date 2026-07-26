@@ -142,6 +142,7 @@ namespace ExpressPackingMonitoring.Data
                     SourceDeviceName TEXT DEFAULT '',
                     SourceSessionId TEXT DEFAULT '',
                     ContentSha256 TEXT DEFAULT '',
+                    BackupCompletedAt TEXT,
                     FilePath TEXT NOT NULL,
                     FileSizeBytes INTEGER DEFAULT 0,
                     StartTime TEXT NOT NULL,
@@ -195,6 +196,12 @@ namespace ExpressPackingMonitoring.Data
             EnsureColumnExists("VideoRecords", "SourceDeviceName", "TEXT DEFAULT ''");
             EnsureColumnExists("VideoRecords", "SourceSessionId", "TEXT DEFAULT ''");
             EnsureColumnExists("VideoRecords", "ContentSha256", "TEXT DEFAULT ''");
+            EnsureColumnExists("VideoRecords", "BackupCompletedAt", "TEXT");
+            ExecuteNonQuery(@"
+                UPDATE VideoRecords
+                SET BackupCompletedAt = COALESCE(EndTime, StartTime)
+                WHERE SourceType = 'external'
+                  AND (BackupCompletedAt IS NULL OR BackupCompletedAt = '');");
 
             ExecuteNonQuery("CREATE INDEX IF NOT EXISTS idx_video_orderid ON VideoRecords(OrderId);");
             ExecuteNonQuery("CREATE INDEX IF NOT EXISTS idx_video_starttime ON VideoRecords(StartTime);");
@@ -283,12 +290,12 @@ namespace ExpressPackingMonitoring.Data
                         OrderId, Mode, TrackingNumber, SourceOrderId, BuyerMessage, SellerMemo, ProductInfo,
                         OrderInfoPushTime, OrderInfoJson, SourceType, SourceDeviceId, SourceDeviceName,
                         SourceSessionId, ContentSha256, FilePath, FileSizeBytes, StartTime, EndTime,
-                        DurationSeconds, StopReason)
+                        DurationSeconds, StopReason, BackupCompletedAt)
                     VALUES (
                         @orderId, '发货', @trackingNumber, @sourceOrderId, @buyerMessage, @sellerMemo, @productInfo,
                         @orderInfoPushTime, @orderInfoJson, 'external', @sourceDeviceId, @sourceDeviceName,
                         @sourceSessionId, @contentSha256, @filePath, @fileSizeBytes, @startTime, @endTime,
-                        @durationSeconds, 'APP 备份');
+                        @durationSeconds, 'APP 备份', @backupCompletedAt);
                     SELECT last_insert_rowid();";
                 cmd.Parameters.AddWithValue("@orderId", orderId);
                 cmd.Parameters.AddWithValue("@trackingNumber", normalizedTracking);
@@ -307,7 +314,40 @@ namespace ExpressPackingMonitoring.Data
                 cmd.Parameters.AddWithValue("@startTime", startTime.ToString("yyyy-MM-dd HH:mm:ss"));
                 cmd.Parameters.AddWithValue("@endTime", endTime.ToString("yyyy-MM-dd HH:mm:ss"));
                 cmd.Parameters.AddWithValue("@durationSeconds", Math.Max(0, durationSeconds));
+                cmd.Parameters.AddWithValue("@backupCompletedAt", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
                 return (long)cmd.ExecuteScalar();
+            }
+        }
+
+        public IReadOnlyList<MobileBackupDailyCount> GetMobileBackupDailyCounts(DateTime day)
+        {
+            DateTime start = day.Date;
+            DateTime end = start.AddDays(1);
+            lock (_lock)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.CommandText = @"
+                    SELECT SourceDeviceId, MAX(SourceDeviceName), COUNT(1)
+                    FROM VideoRecords
+                    WHERE IsDeleted = 0
+                      AND SourceType = 'external'
+                      AND SourceDeviceId <> ''
+                      AND BackupCompletedAt >= @start
+                      AND BackupCompletedAt < @end
+                    GROUP BY SourceDeviceId
+                    ORDER BY MAX(SourceDeviceName), SourceDeviceId;";
+                cmd.Parameters.AddWithValue("@start", start.ToString("yyyy-MM-dd HH:mm:ss"));
+                cmd.Parameters.AddWithValue("@end", end.ToString("yyyy-MM-dd HH:mm:ss"));
+                using var reader = cmd.ExecuteReader();
+                var result = new List<MobileBackupDailyCount>();
+                while (reader.Read())
+                {
+                    result.Add(new MobileBackupDailyCount(
+                        reader.GetString(0),
+                        reader.IsDBNull(1) ? "" : reader.GetString(1),
+                        reader.GetInt32(2)));
+                }
+                return result;
             }
         }
 
@@ -1468,4 +1508,9 @@ namespace ExpressPackingMonitoring.Data
             try { _connection?.Close(); _connection?.Dispose(); } catch { }
         }
     }
+
+    public sealed record MobileBackupDailyCount(
+        string DeviceId,
+        string DeviceName,
+        int VideoCount);
 }

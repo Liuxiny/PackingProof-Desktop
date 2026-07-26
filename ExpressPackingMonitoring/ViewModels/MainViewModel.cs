@@ -236,6 +236,9 @@ namespace ExpressPackingMonitoring.ViewModels
         private readonly string _activeWorkstationRole = WorkstationRoles.CameraMonitor;
         private string _workstationPrintStatusText = "手机备份服务：未连接";
         private string _workstationStatusToolTip = "";
+        private string _orderIntegrationStatusText = "订单联动：暂未收到订单";
+        private IReadOnlyList<ConnectedClientInfo> _connectedClientSnapshot = [];
+        private DateTime _mobileBackupStatusDate = DateTime.Today;
         private string _connectedDeviceText = "连接服务未开启";
         private string _connectedDeviceToolTip = "开启局域网查看后可显示在线设备";
         private bool _hasConnectedDevices;
@@ -268,6 +271,13 @@ namespace ExpressPackingMonitoring.ViewModels
             public string MinuteUnit { get; }
             public string SecondValue { get; }
             public string SecondUnit { get; }
+        }
+
+        public sealed class MobileBackupDeviceStatus
+        {
+            public string DeviceId { get; init; } = "";
+            public string DisplayText { get; init; } = "";
+            public bool IsOnline { get; init; }
         }
 
         private static DurationDisplayText FormatDurationDisplay(TimeSpan duration)
@@ -399,6 +409,8 @@ namespace ExpressPackingMonitoring.ViewModels
         }
         public string WorkstationPrintStatusText { get => _workstationPrintStatusText; set => SetProperty(ref _workstationPrintStatusText, value); }
         public string WorkstationStatusToolTip { get => _workstationStatusToolTip; set => SetProperty(ref _workstationStatusToolTip, value); }
+        public string OrderIntegrationStatusText { get => _orderIntegrationStatusText; private set => SetProperty(ref _orderIntegrationStatusText, value); }
+        public ObservableCollection<MobileBackupDeviceStatus> MobileBackupDeviceStatuses { get; } = new();
         public string ConnectedDeviceText { get => _connectedDeviceText; private set => SetProperty(ref _connectedDeviceText, value); }
         public string ConnectedDeviceToolTip { get => _connectedDeviceToolTip; private set => SetProperty(ref _connectedDeviceToolTip, value); }
         public bool HasConnectedDevices { get => _hasConnectedDevices; private set => SetProperty(ref _hasConnectedDevices, value); }
@@ -762,7 +774,12 @@ namespace ExpressPackingMonitoring.ViewModels
             {
                 Interval = TimeSpan.FromSeconds(1)
             };
-            _uiHeartbeatTimer.Tick += (_, __) => _lastUiHeartbeatAt = DateTime.Now;
+            _uiHeartbeatTimer.Tick += (_, __) =>
+            {
+                _lastUiHeartbeatAt = DateTime.Now;
+                if (_mobileBackupStatusDate != DateTime.Today)
+                    RefreshMobileBackupStatuses();
+            };
             _uiHeartbeatTimer.Start();
         }
 
@@ -2407,6 +2424,7 @@ namespace ExpressPackingMonitoring.ViewModels
                         server.OrderInfoReceived += OnOrderInfoReceived;
                         server.ConnectedClientsChanged += OnConnectedClientsChanged;
                         server.MobileAppUpdateAvailable += OnMobileAppUpdateAvailable;
+                        server.MobileBackupCompleted += OnMobileBackupCompleted;
                         server.Start(allowAccessSetup);
                         return server;
                     }
@@ -2483,6 +2501,7 @@ namespace ExpressPackingMonitoring.ViewModels
                 ? "访问保护已开启。请点击手机/电脑连接查看二维码或复制完整访问链接，再发送到需要查看录像的设备。"
                 : $"其他电脑在浏览器输入 http://{MonitorAccessAddress}，即可搜索、下载和播放视频。若打不开，请确认两台电脑在同一局域网，并检查防火墙。";
             UpdateConnectedClients(_webServer.GetConnectedClients());
+            RefreshMobileBackupStatuses();
         }
 
         private void OnConnectedClientsChanged(IReadOnlyList<ConnectedClientInfo> clients)
@@ -2544,6 +2563,7 @@ namespace ExpressPackingMonitoring.ViewModels
         private void UpdateConnectedClients(IReadOnlyList<ConnectedClientInfo> clients)
         {
             if (_isDisposed) return;
+            _connectedClientSnapshot = clients ?? [];
             int count = ConnectedClientRegistry.CountDistinctAddresses(clients);
             HasConnectedDevices = count > 0;
             ConnectedDeviceText = count > 0
@@ -2552,6 +2572,7 @@ namespace ExpressPackingMonitoring.ViewModels
             if (count == 0)
             {
                 ConnectedDeviceToolTip = AppLanguage.Get("Main.ConnectionEmptyTip");
+                RefreshMobileBackupStatuses();
                 return;
             }
 
@@ -2561,6 +2582,91 @@ namespace ExpressPackingMonitoring.ViewModels
                 .Select(group => $"{group.Key} {group.Count()}")
                 .ToArray();
             ConnectedDeviceToolTip = string.Join("\n", details);
+            RefreshMobileBackupStatuses();
+        }
+
+        private void OnMobileBackupCompleted(string deviceId, string deviceName)
+        {
+            Application application = Application.Current;
+            if (application == null || application.Dispatcher.CheckAccess())
+            {
+                RefreshMobileBackupStatuses();
+                return;
+            }
+            _ = application.Dispatcher.InvokeAsync(RefreshMobileBackupStatuses);
+        }
+
+        private void RefreshMobileBackupStatuses()
+        {
+            if (_isDisposed)
+                return;
+
+            _mobileBackupStatusDate = DateTime.Today;
+            IReadOnlyList<MobileBackupDailyCount> counts =
+                _db?.GetMobileBackupDailyCounts(_mobileBackupStatusDate) ?? [];
+            var statusByDevice = counts.ToDictionary(
+                item => item.DeviceId,
+                item => new
+                {
+                    Name = string.IsNullOrWhiteSpace(item.DeviceName)
+                        ? GetFallbackDeviceName(item.DeviceId)
+                        : item.DeviceName,
+                    Count = item.VideoCount,
+                    Online = false
+                },
+                StringComparer.OrdinalIgnoreCase);
+
+            foreach (ConnectedClientInfo client in _connectedClientSnapshot
+                .Where(client => string.Equals(
+                    client.ClientType,
+                    "mobile-app",
+                    StringComparison.OrdinalIgnoreCase)))
+            {
+                string deviceId = string.IsNullOrWhiteSpace(client.NodeId)
+                    ? client.ClientId
+                    : client.NodeId;
+                statusByDevice.TryGetValue(deviceId, out var existing);
+                statusByDevice[deviceId] = new
+                {
+                    Name = string.IsNullOrWhiteSpace(client.DisplayName)
+                        ? existing?.Name ?? "手机设备"
+                        : client.DisplayName,
+                    Count = existing?.Count ?? 0,
+                    Online = true
+                };
+            }
+
+            MobileBackupDeviceStatuses.Clear();
+            foreach (var item in statusByDevice
+                .OrderBy(pair => pair.Value.Name, StringComparer.CurrentCulture)
+                .ThenBy(pair => pair.Key, StringComparer.Ordinal))
+            {
+                MobileBackupDeviceStatuses.Add(new MobileBackupDeviceStatus
+                {
+                    DeviceId = item.Key,
+                    DisplayText = $"{item.Value.Name} · 今日备份 {item.Value.Count} 个",
+                    IsOnline = item.Value.Online
+                });
+            }
+
+            if (MobileBackupDeviceStatuses.Count == 0)
+            {
+                MobileBackupDeviceStatuses.Add(new MobileBackupDeviceStatus
+                {
+                    DisplayText = "暂无手机设备在线",
+                    IsOnline = false
+                });
+            }
+        }
+
+        private static string GetFallbackDeviceName(string deviceId)
+        {
+            string normalized = new((deviceId ?? "")
+                .Where(char.IsLetterOrDigit)
+                .ToArray());
+            return normalized.Length == 0
+                ? "手机设备"
+                : $"设备 {normalized[^Math.Min(6, normalized.Length)..].ToUpperInvariant()}";
         }
 
         private void SetConnectedDeviceUnavailable(string text, string tooltip)
@@ -2815,7 +2921,9 @@ namespace ExpressPackingMonitoring.ViewModels
                     if (_isDisposed) return;
                     if (_webServer != null)
                     {
-                        WorkstationPrintStatusText = printStatusText;
+                        OrderIntegrationStatusText = printStatusText
+                            .Replace("手机录像备份：", "订单联动：", StringComparison.Ordinal)
+                            .Replace("Phone recording backup:", "Order integration:", StringComparison.Ordinal);
                     }
 
                     string activeOrderId = IsRecording ? _recordingOrderId : CurrentOrderId;

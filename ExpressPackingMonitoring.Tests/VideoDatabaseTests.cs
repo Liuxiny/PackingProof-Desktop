@@ -8,6 +8,33 @@ namespace ExpressPackingMonitoring.Tests;
 public sealed class VideoDatabaseTests
 {
     [Fact]
+    public void MobileBackupDailyCounts_AreGroupedByStableDeviceAndIgnoreDeletedVideos()
+    {
+        string tempDirectory = CreateTempDirectory();
+        try
+        {
+            using var database = new VideoDatabase(Path.Combine(tempDirectory, "videos.db"));
+            string firstPath = Path.Combine(tempDirectory, "first.mp4");
+            string secondPath = Path.Combine(tempDirectory, "second.mp4");
+            string deletedPath = Path.Combine(tempDirectory, "deleted.mp4");
+            database.InsertMobileBackupRecord("A", firstPath, 1, DateTime.Now, 3, "phone-a", "手机1", "session-a1", "sha-a1");
+            database.InsertMobileBackupRecord("B", secondPath, 1, DateTime.Now, 3, "phone-a", "手机1", "session-a2", "sha-a2");
+            database.InsertMobileBackupRecord("C", deletedPath, 1, DateTime.Now, 3, "phone-b", "手机2", "session-b1", "sha-b1");
+            database.MarkVideoDeleted(deletedPath, "测试");
+
+            MobileBackupDailyCount count = Assert.Single(
+                database.GetMobileBackupDailyCounts(DateTime.Today));
+            Assert.Equal("phone-a", count.DeviceId);
+            Assert.Equal("手机1", count.DeviceName);
+            Assert.Equal(2, count.VideoCount);
+        }
+        finally
+        {
+            DeleteTempDirectory(tempDirectory);
+        }
+    }
+
+    [Fact]
     public void MobileHistory_CountsDeviceDuplicatesAndReturnsDeletedStatuses()
     {
         string tempDirectory = CreateTempDirectory();

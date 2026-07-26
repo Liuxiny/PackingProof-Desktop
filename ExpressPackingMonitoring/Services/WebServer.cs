@@ -115,6 +115,7 @@ namespace ExpressPackingMonitoring.Services
         public event Action<List<OrderInfo>> OrderInfoReceived;
         internal event Action<IReadOnlyList<ConnectedClientInfo>> ConnectedClientsChanged;
         internal event Action<MobileAppUpdateAvailableInfo> MobileAppUpdateAvailable;
+        internal event Action<string, string> MobileBackupCompleted;
 
         public int Port { get; }
         public bool EnableOrderInfoLog { get; set; }
@@ -971,6 +972,13 @@ namespace ExpressPackingMonitoring.Services
                     request.SourceDeviceId,
                     request.SourceDeviceName);
                 MobileBackupCompleteResult result = _mobileBackupService.Complete(uploadId, request);
+                try
+                {
+                    MobileBackupCompleted?.Invoke(
+                        request.SourceDeviceId?.Trim() ?? "",
+                        request.SourceDeviceName?.Trim() ?? "");
+                }
+                catch { }
                 SendJson(ctx, 200, new
                 {
                     status = result.Status,

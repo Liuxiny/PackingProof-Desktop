@@ -657,6 +657,8 @@
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
                             <TextBlock Grid.Row="0"
                                        Text="{Binding WorkstationPrintStatusText}"
@@ -664,7 +666,41 @@
                                        FontSize="12"
                                        TextTrimming="CharacterEllipsis"
                                        VerticalAlignment="Center"/>
-                            <Grid Grid.Row="1" Margin="0,8,0,0">
+                            <ItemsControl Grid.Row="1"
+                                          ItemsSource="{Binding MobileBackupDeviceStatuses}"
+                                          Margin="0,5,0,0"
+                                          MaxHeight="52"
+                                          ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Margin="0,1">
+                                            <Ellipse Width="7" Height="7" Margin="1,0,7,0" VerticalAlignment="Center">
+                                                <Ellipse.Style>
+                                                    <Style TargetType="Ellipse">
+                                                        <Setter Property="Fill" Value="{DynamicResource TextMuted}"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsOnline}" Value="True">
+                                                                <Setter Property="Fill" Value="{DynamicResource AccentGreen}"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Ellipse.Style>
+                                            </Ellipse>
+                                            <TextBlock Text="{Binding DisplayText}"
+                                                       Foreground="{DynamicResource TextMuted}"
+                                                       FontSize="12"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Grid.Row="2"
+                                       Text="{Binding OrderIntegrationStatusText}"
+                                       Foreground="{DynamicResource TextMuted}"
+                                       FontSize="12"
+                                       TextTrimming="CharacterEllipsis"
+                                       Margin="0,5,0,0"/>
+                            <Grid Grid.Row="3" Margin="0,8,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="8"/>
@@ -687,7 +723,7 @@
                                         Focusable="False">
                                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" IsHitTestVisible="False">
                                         <Path Data="{StaticResource FluentWifiIcon}" Width="14" Height="14" Stretch="Uniform" Fill="White"/>
-                                        <TextBlock Text="手机/电脑连接" Margin="5,0,0,0" FontSize="12" Foreground="White" VerticalAlignment="Center"/>
+                                        <TextBlock Text="连接手机" Margin="5,0,0,0" FontSize="12" Foreground="White" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
                                 <Button x:Name="BtnInstallUserscript"
@@ -699,7 +735,7 @@
                                         Focusable="False">
                                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" IsHitTestVisible="False">
                                         <Path Data="{StaticResource FluentLinkIcon}" Width="14" Height="14" Stretch="Uniform" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                                        <TextBlock Text="快递助手联动" Margin="5,0,0,0" FontSize="12" VerticalAlignment="Center"/>
+                                        <TextBlock Text="订单联动" Margin="5,0,0,0" FontSize="12" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
                             </Grid>

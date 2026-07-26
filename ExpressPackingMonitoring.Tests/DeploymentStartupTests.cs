@@ -231,6 +231,10 @@ public sealed class DeploymentStartupTests
         Assert.Contains("_webServer.GetRecordingDevices(verifiedAddress)", source, StringComparison.Ordinal);
         Assert.Contains("public void OpenUserscriptGuide()", source, StringComparison.Ordinal);
         Assert.Contains("/kuaidizs-install-guide", source, StringComparison.Ordinal);
+        Assert.Contains("ItemsSource=\"{Binding MobileBackupDeviceStatuses}\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Text=\"连接手机\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Text=\"订单联动\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("OrderIntegrationStatusText", source, StringComparison.Ordinal);
     }
 
     [Fact]
