@@ -14,7 +14,13 @@ internal static class UserscriptGuideNavigation
             return "";
         }
 
-        return $"{value}{GuidePath}?refresh={DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
+        var builder = new UriBuilder(uri.Scheme, uri.Host, uri.IsDefaultPort ? -1 : uri.Port)
+        {
+            Path = GuidePath,
+            Query = $"refresh={DateTimeOffset.UtcNow.ToUnixTimeSeconds()}",
+            Fragment = ""
+        };
+        return builder.Uri.AbsoluteUri;
     }
 
     internal static bool TryOpen(string hostAddress, out string error)

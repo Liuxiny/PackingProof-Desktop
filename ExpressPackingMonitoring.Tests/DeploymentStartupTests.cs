@@ -19,6 +19,24 @@ public sealed class DeploymentStartupTests
     }
 
     [Theory]
+    [InlineData("http://192.168.1.20:5280")]
+    [InlineData("http://192.168.1.20:5280/")]
+    [InlineData("http://192.168.1.20:5280/?key=secret")]
+    [InlineData("http://192.168.1.20:5280/videos?page=2")]
+    [InlineData("http://192.168.1.20:5280/kuaidizs-install-guide?key=secret")]
+    public void UserscriptGuideNavigationRebuildsPathWithoutPlaybackQuery(string hostAddress)
+    {
+        string url = UserscriptGuideNavigation.BuildUrl(hostAddress);
+        var uri = new Uri(url);
+
+        Assert.Equal("http://192.168.1.20:5280", uri.GetLeftPart(UriPartial.Authority));
+        Assert.Equal("/kuaidizs-install-guide", uri.AbsolutePath);
+        Assert.StartsWith("?refresh=", uri.Query, StringComparison.Ordinal);
+        Assert.DoesNotContain("key=", uri.Query, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("videos", url, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
     [InlineData("RecordingHost", DeploymentPresets.RecordingHost)]
     [InlineData("CameraMonitor", DeploymentPresets.RecordingHost)]
     [InlineData("monitor", DeploymentPresets.RecordingHost)]
