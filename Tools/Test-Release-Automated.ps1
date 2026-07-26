@@ -109,6 +109,7 @@ try {
             WorkstationRole = "CameraMonitor"
             FirstUseWizardCompleted = $true
             DeploymentSetupVersion = 1
+            RecordingSetupVersion = 1
             CameraBarcodeSetupVersion = 1
             MobileConnectionSetupVersion = 1
             EnableCameraBarcodeRecognition = $false
