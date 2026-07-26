@@ -8,6 +8,10 @@ param(
     [string]$BaselineLauncherPath = "",
     [string]$BaselineLauncherManifestPath = "",
     [string]$SevenZipPath = "",
+    [ValidateRange(1, 9)]
+    [int]$SevenZipCompressionLevel = 5,
+    [ValidateSet("lzma2/normal", "lzma2/max", "lzma2/ultra64")]
+    [string]$InstallerCompression = "lzma2/max",
     [string]$PatchBaselineVersion = "0.0.18",
     [switch]$SkipTtsCacheGeneration,
     [switch]$ConfirmManualCoreChecks,
@@ -295,7 +299,8 @@ function Compress-Package7zWithRetry {
     param(
         [string]$SourceDir,
         [string]$DestinationArchive,
-        [string]$SevenZipExecutable
+        [string]$SevenZipExecutable,
+        [int]$CompressionLevel
     )
 
     $lastError = $null
@@ -309,7 +314,7 @@ function Compress-Package7zWithRetry {
             try {
                 & $SevenZipExecutable a `
                     -t7z `
-                    -mx=9 `
+                    "-mx=$CompressionLevel" `
                     -m0=lzma2 `
                     -ms=on `
                     -mmt=on `
@@ -769,7 +774,11 @@ if (Test-Path $appPatchZipPath) {
 if (-not (Test-Path -LiteralPath $installerBuildScript -PathType Leaf)) {
     throw "Installer build script not found: $installerBuildScript"
 }
-& $installerBuildScript -SourceDir $outputFullPath -Version $normalizedVersion -OutputDir $packageRoot
+& $installerBuildScript `
+    -SourceDir $outputFullPath `
+    -Version $normalizedVersion `
+    -OutputDir $packageRoot `
+    -InstallerCompression $InstallerCompression
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $setupPath -PathType Leaf)) {
     throw "Installer build failed: $setupPath"
 }
@@ -922,7 +931,8 @@ $sevenZipExecutable = Resolve-SevenZipExecutable
 Compress-Package7zWithRetry `
     -SourceDir $outputFullPath `
     -DestinationArchive $sevenZipFullPath `
-    -SevenZipExecutable $sevenZipExecutable
+    -SevenZipExecutable $sevenZipExecutable `
+    -CompressionLevel $SevenZipCompressionLevel
 
 if (-not (Test-ZipContainsEntry -ZipFile $zipFullPath -EntryName "ExpressPackingMonitoring.exe")) {
     throw "Full zip validation failed: missing root launcher"

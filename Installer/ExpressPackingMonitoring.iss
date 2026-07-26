@@ -10,6 +10,9 @@
 #ifndef OutputDir
   #error OutputDir is required
 #endif
+#ifndef InstallerCompression
+  #define InstallerCompression "lzma2/max"
+#endif
 
 #define MyAppName "快递打包监控"
 #define MyAppExeName "ExpressPackingMonitoring.exe"
@@ -36,7 +39,7 @@ OutputBaseFilename=ExpressPackingMonitoring_Setup_v{#MyAppVersion}
 SetupIconFile=..\ExpressPackingMonitoring\app.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 LicenseFile=..\LICENSE
-Compression=lzma2/ultra64
+Compression={#InstallerCompression}
 SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes

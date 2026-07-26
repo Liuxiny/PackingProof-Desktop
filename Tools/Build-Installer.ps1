@@ -5,7 +5,9 @@ param(
     [string]$Version,
     [Parameter(Mandatory = $true)]
     [string]$OutputDir,
-    [string]$IsccPath = ""
+    [string]$IsccPath = "",
+    [ValidateSet("lzma2/normal", "lzma2/max", "lzma2/ultra64")]
+    [string]$InstallerCompression = "lzma2/max"
 )
 
 $ErrorActionPreference = "Stop"
@@ -83,7 +85,8 @@ $compilerArguments = @(
     "/DMyAppVersion=$normalizedVersion",
     "/DMyAppVersion4=$version4",
     "/DSourceDir=$sourceFullPath",
-    "/DOutputDir=$temporaryBuildRoot"
+    "/DOutputDir=$temporaryBuildRoot",
+    "/DInstallerCompression=$InstallerCompression"
 )
 
 $certificateThumbprint = ($env:WINDOWS_SIGN_CERT_THUMBPRINT ?? "").Trim()

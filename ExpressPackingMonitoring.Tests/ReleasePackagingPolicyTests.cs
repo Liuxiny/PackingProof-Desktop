@@ -90,6 +90,7 @@ public sealed class ReleasePackagingPolicyTests
         Assert.DoesNotContain("WizardSilent", innoScript);
 
         Assert.Contains("INNO_SETUP_ISCC", buildScript);
+        Assert.Contains("InstallerCompression = \"lzma2/max\"", buildScript);
         Assert.Contains("winget install --id JRSoftware.InnoSetup", buildScript);
         Assert.Contains("WINDOWS_SIGN_CERT_THUMBPRINT", buildScript);
         Assert.Contains("Get-AuthenticodeSignature", buildScript);
@@ -105,6 +106,9 @@ public sealed class ReleasePackagingPolicyTests
         Assert.Contains("SEVEN_ZIP_EXE", publishScript);
         Assert.Contains("winget install --id 7zip.7zip", publishScript);
         Assert.Contains("-t7z", publishScript);
+        Assert.Contains("SevenZipCompressionLevel = 5", publishScript);
+        Assert.Contains("\"-mx=$CompressionLevel\"", publishScript);
+        Assert.Contains("-InstallerCompression $InstallerCompression", publishScript);
         Assert.Contains("-m0=lzma2", publishScript);
         Assert.Contains("-ms=on", publishScript);
     }
