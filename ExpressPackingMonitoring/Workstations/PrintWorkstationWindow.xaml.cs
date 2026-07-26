@@ -283,6 +283,12 @@ public partial class PrintWorkstationWindow : Window
     private void RefreshDeviceSummary()
     {
         RecorderCountTextBlock.Text = $"当前录像设备：{_host.GetRecordingDevices().Count}";
+        UserscriptTargetStatus userscriptStatus = UserscriptTargetState.GetStatus(
+            _config,
+            _host.GetRecordingDevices(includeKnown: true));
+        UserscriptStatusTextBlock.Text = userscriptStatus.StatusText;
+        InstallUserscriptButton.Content = userscriptStatus.ButtonText;
+        InstallUserscriptButton.IsEnabled = userscriptStatus.CurrentSignature.Length > 0;
         ConnectedPhoneCountTextBlock.Text = $"已连接手机：{_host.GetConnectedMobileCount()}";
     }
 
@@ -437,7 +443,11 @@ public partial class PrintWorkstationWindow : Window
             SetStatus("打开快递助手联动安装向导失败", error, StatusVisual.Error);
             return;
         }
-        SetStatus("已打开快递助手联动安装向导", "脚本会重新获取并写入全部录像设备", StatusVisual.Success);
+        UserscriptTargetState.MarkGuideOpened(
+            _config,
+            _host.GetRecordingDevices(includeKnown: true));
+        RefreshDeviceSummary();
+        SetStatus("已打开订单联动安装向导", "脚本会写入最近使用过的全部录像设备", StatusVisual.Success);
     }
 
     private async void TestReceive_Click(object sender, RoutedEventArgs e)

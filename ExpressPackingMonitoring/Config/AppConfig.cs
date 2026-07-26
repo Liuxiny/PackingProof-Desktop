@@ -95,6 +95,7 @@ namespace ExpressPackingMonitoring.Config
         public string NodeName { get; set; } = "";
         public string LastKnownHostNodeId { get; set; } = "";
         public string LastKnownHostAddress { get; set; } = "";
+        public string LastUserscriptTargetSignature { get; set; } = "";
         public int DeploymentSetupVersion { get; set; } = 0;
         public int RecordingSetupVersion { get; set; } = 0;
 

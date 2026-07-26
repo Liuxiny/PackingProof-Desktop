@@ -14,6 +14,7 @@ public partial class ViewerClientWindow : Window
     private readonly DispatcherTimer _onlineTimer;
     private CancellationTokenSource? _searchCancellation;
     private PackingProofNodeInfo? _boundHost;
+    private IReadOnlyList<RecordingDeviceInfo> _knownRecordingDevices = [];
     private bool _deploymentSetupPersisted;
 
     public ViewerClientWindow(AppConfig config)
@@ -59,8 +60,13 @@ public partial class ViewerClientWindow : Window
 
         _boundHost = node;
         CompleteDeploymentSetup(node);
-        IReadOnlyList<RecordingDeviceInfo> devices =
-            await WorkstationNetwork.GetRecordingDevicesAsync(node.Address);
+        Task<IReadOnlyList<RecordingDeviceInfo>> activeDevicesTask =
+            WorkstationNetwork.GetRecordingDevicesAsync(node.Address);
+        Task<IReadOnlyList<RecordingDeviceInfo>> knownDevicesTask =
+            WorkstationNetwork.GetRecordingDevicesAsync(node.Address, includeKnown: true);
+        await Task.WhenAll(activeDevicesTask, knownDevicesTask);
+        IReadOnlyList<RecordingDeviceInfo> devices = await activeDevicesTask;
+        _knownRecordingDevices = await knownDevicesTask;
         HostNameText.Text = node.NodeName;
         HostAddressText.Text = node.Address;
         OnlineStatusText.Text = "在线";
@@ -68,6 +74,8 @@ public partial class ViewerClientWindow : Window
         CapabilitiesText.Text = node.CapabilitySummary;
         RecorderCountText.Text = devices.Count.ToString();
         OpenWebButton.IsEnabled = true;
+        UserscriptButton.IsEnabled = _knownRecordingDevices.Count > 0;
+        RefreshUserscriptStatus();
     }
 
     private void SetOffline(string status)
@@ -82,6 +90,8 @@ public partial class ViewerClientWindow : Window
         CapabilitiesText.Text = "—";
         RecorderCountText.Text = "0";
         OpenWebButton.IsEnabled = false;
+        UserscriptButton.IsEnabled = false;
+        UserscriptStatusText.Text = "主机离线，暂时无法检查订单联动设备";
     }
 
     private async Task SearchHostsAsync()
@@ -170,7 +180,22 @@ public partial class ViewerClientWindow : Window
         }
 
         if (!UserscriptGuideNavigation.TryOpen(address, out string error))
+        {
             MessageBox.Show(this, error, "安装快递助手联动失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        UserscriptTargetState.MarkGuideOpened(_config, _knownRecordingDevices);
+        RefreshUserscriptStatus();
+    }
+
+    private void RefreshUserscriptStatus()
+    {
+        UserscriptTargetStatus status = UserscriptTargetState.GetStatus(
+            _config,
+            _knownRecordingDevices);
+        UserscriptStatusText.Text = status.StatusText;
+        UserscriptButton.Content = status.ButtonText;
     }
 
     private void SwitchPurpose_Click(object sender, RoutedEventArgs e)

@@ -35,7 +35,7 @@ internal sealed class NoCameraWorkstationHost : IDisposable
         _database ?? throw new InvalidOperationException("录像数据库尚未打开");
     public event Action<MobileAppUpdateAvailableInfo>? MobileAppUpdateAvailable;
 
-    public IReadOnlyList<RecordingDeviceInfo> GetRecordingDevices()
+    public IReadOnlyList<RecordingDeviceInfo> GetRecordingDevices(bool includeKnown = false)
     {
         if (_server == null)
             return Array.Empty<RecordingDeviceInfo>();
@@ -43,7 +43,7 @@ internal sealed class NoCameraWorkstationHost : IDisposable
         string accessUrl = IsLanAvailable ? LanAccessUrl : LocalPlaybackUrl;
         if (Uri.TryCreate(accessUrl, UriKind.Absolute, out Uri? uri))
             authority = uri.Authority;
-        return _server.GetRecordingDevices(authority);
+        return _server.GetRecordingDevices(authority, includeKnown);
     }
 
     public int GetConnectedMobileCount()

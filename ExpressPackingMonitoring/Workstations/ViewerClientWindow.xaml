@@ -79,18 +79,22 @@
                 </Grid>
             </Border>
 
-            <WrapPanel Grid.Row="2" Margin="0,16,0,0">
-                <Button x:Name="OpenWebButton" Content="打开录像网页" Style="{DynamicResource PrimaryButtonStyle}"
-                        Margin="0,0,10,10" Click="OpenWeb_Click"/>
-                <Button Content="重新搜索主机" Style="{DynamicResource SecondaryButtonStyle}"
-                        Margin="0,0,10,10" Click="SearchHosts_Click"/>
-                <Button Content="更换主机" Style="{DynamicResource SecondaryButtonStyle}"
-                        Margin="0,0,10,10" Click="ChangeHost_Click"/>
-                <Button Content="安装快递助手联动" Style="{DynamicResource SecondaryButtonStyle}"
-                        Margin="0,0,10,10" Click="InstallUserscript_Click"/>
-                <Button Content="重新生成快递助手脚本" Style="{DynamicResource SecondaryButtonStyle}"
-                        Margin="0,0,10,10" Click="InstallUserscript_Click"/>
-            </WrapPanel>
+            <StackPanel Grid.Row="2" Margin="0,16,0,0">
+                <WrapPanel>
+                    <Button x:Name="OpenWebButton" Content="打开录像网页" Style="{DynamicResource PrimaryButtonStyle}"
+                            Margin="0,0,10,10" Click="OpenWeb_Click"/>
+                    <Button Content="重新搜索主机" Style="{DynamicResource SecondaryButtonStyle}"
+                            Margin="0,0,10,10" Click="SearchHosts_Click"/>
+                    <Button Content="更换主机" Style="{DynamicResource SecondaryButtonStyle}"
+                            Margin="0,0,10,10" Click="ChangeHost_Click"/>
+                    <Button x:Name="UserscriptButton" Content="安装订单联动"
+                            Style="{DynamicResource SecondaryButtonStyle}"
+                            Margin="0,0,10,10" Click="InstallUserscript_Click"/>
+                </WrapPanel>
+                <TextBlock x:Name="UserscriptStatusText"
+                           Text="尚未配置订单联动"
+                           Foreground="{DynamicResource TextSecondary}"/>
+            </StackPanel>
 
             <Border x:Name="DiscoveryPanel"
                     Grid.Row="3"

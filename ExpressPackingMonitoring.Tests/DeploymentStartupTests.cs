@@ -78,6 +78,20 @@ public sealed class DeploymentStartupTests
     }
 
     [Fact]
+    public void ViewerClientUsesSingleDynamicUserscriptButton()
+    {
+        string xaml = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "Workstations",
+            "ViewerClientWindow.xaml");
+
+        Assert.Equal(1, xaml.Split("Click=\"InstallUserscript_Click\"", StringSplitOptions.None).Length - 1);
+        Assert.Contains("x:Name=\"UserscriptButton\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"UserscriptStatusText\"", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("重新生成快递助手脚本", xaml, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ViewerClientExposesPurposeSwitchAndUsesSharedRestartFlow()
     {
         string viewerXaml = ReadRepositoryFile(
@@ -250,7 +264,8 @@ public sealed class DeploymentStartupTests
         Assert.Contains("UserscriptGuideNavigation.TryOpen", source, StringComparison.Ordinal);
         Assert.Contains("ItemsSource=\"{Binding MobileBackupDeviceStatuses}\"", xaml, StringComparison.Ordinal);
         Assert.Contains("Text=\"连接手机\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("Text=\"订单联动\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Text=\"{Binding UserscriptButtonText}\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("UserscriptSetupStatusText", source, StringComparison.Ordinal);
         Assert.Contains("OrderIntegrationStatusText", source, StringComparison.Ordinal);
     }
 

@@ -12,6 +12,30 @@ namespace ExpressPackingMonitoring.Tests;
 
 public sealed class RecordingDeviceCatalogTests
 {
+    [Fact]
+    public void UserscriptTargetSignatureChangesForDeviceDetailsButNotOnlineStatus()
+    {
+        var config = new AppConfig();
+        var phone = new RecordingDeviceInfo
+        {
+            NodeId = "phone-1",
+            NodeName = "手机1",
+            DeviceType = "mobile",
+            Address = "http://192.168.1.31:5280",
+            Online = true
+        };
+        config.LastUserscriptTargetSignature = UserscriptTargetState.BuildSignature([phone]);
+
+        phone.Online = false;
+        UserscriptTargetStatus unchanged = UserscriptTargetState.GetStatus(config, [phone]);
+        Assert.Equal("订单联动设备列表已是最新", unchanged.StatusText);
+
+        phone.Address = "http://192.168.1.32:5280";
+        UserscriptTargetStatus changed = UserscriptTargetState.GetStatus(config, [phone]);
+        Assert.Equal("发现新的录像设备，请更新订单联动脚本", changed.StatusText);
+        Assert.Equal("更新订单联动", changed.ButtonText);
+    }
+
     private static readonly string[] RecorderCapabilities =
     [
         PackingProofCapabilities.Recording,

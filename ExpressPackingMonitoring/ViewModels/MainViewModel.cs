@@ -237,8 +237,11 @@ namespace ExpressPackingMonitoring.ViewModels
         private string _workstationPrintStatusText = "手机备份服务：未连接";
         private string _workstationStatusToolTip = "";
         private string _orderIntegrationStatusText = "订单联动：暂未收到订单";
+        private string _userscriptSetupStatusText = "尚未配置订单联动";
+        private string _userscriptButtonText = "订单联动";
         private IReadOnlyList<ConnectedClientInfo> _connectedClientSnapshot = [];
         private DateTime _mobileBackupStatusDate = DateTime.Today;
+        private DateTime _lastUserscriptStatusRefreshAt = DateTime.MinValue;
         private string _connectedDeviceText = "连接服务未开启";
         private string _connectedDeviceToolTip = "开启局域网查看后可显示在线设备";
         private bool _hasConnectedDevices;
@@ -410,6 +413,8 @@ namespace ExpressPackingMonitoring.ViewModels
         public string WorkstationPrintStatusText { get => _workstationPrintStatusText; set => SetProperty(ref _workstationPrintStatusText, value); }
         public string WorkstationStatusToolTip { get => _workstationStatusToolTip; set => SetProperty(ref _workstationStatusToolTip, value); }
         public string OrderIntegrationStatusText { get => _orderIntegrationStatusText; private set => SetProperty(ref _orderIntegrationStatusText, value); }
+        public string UserscriptSetupStatusText { get => _userscriptSetupStatusText; private set => SetProperty(ref _userscriptSetupStatusText, value); }
+        public string UserscriptButtonText { get => _userscriptButtonText; private set => SetProperty(ref _userscriptButtonText, value); }
         public ObservableCollection<MobileBackupDeviceStatus> MobileBackupDeviceStatuses { get; } = new();
         public string ConnectedDeviceText { get => _connectedDeviceText; private set => SetProperty(ref _connectedDeviceText, value); }
         public string ConnectedDeviceToolTip { get => _connectedDeviceToolTip; private set => SetProperty(ref _connectedDeviceToolTip, value); }
@@ -779,6 +784,8 @@ namespace ExpressPackingMonitoring.ViewModels
                 _lastUiHeartbeatAt = DateTime.Now;
                 if (_mobileBackupStatusDate != DateTime.Today)
                     RefreshMobileBackupStatuses();
+                if (DateTime.Now - _lastUserscriptStatusRefreshAt >= TimeSpan.FromSeconds(15))
+                    RefreshUserscriptStatus();
             };
             _uiHeartbeatTimer.Start();
         }
@@ -2656,6 +2663,18 @@ namespace ExpressPackingMonitoring.ViewModels
                     IsOnline = false
                 });
             }
+            RefreshUserscriptStatus();
+        }
+
+        private void RefreshUserscriptStatus()
+        {
+            _lastUserscriptStatusRefreshAt = DateTime.Now;
+            IReadOnlyList<RecordingDeviceInfo> devices = _webServer?.GetRecordingDevices(
+                MonitorAccessAddress,
+                includeKnown: true) ?? [];
+            UserscriptTargetStatus status = UserscriptTargetState.GetStatus(Config, devices);
+            UserscriptSetupStatusText = status.StatusText;
+            UserscriptButtonText = status.ButtonText;
         }
 
         private static string GetFallbackDeviceName(string deviceId)
@@ -3414,7 +3433,15 @@ namespace ExpressPackingMonitoring.ViewModels
             }
 
             if (!UserscriptGuideNavigation.TryOpen($"http://{MonitorAccessAddress}", out string error))
+            {
                 ShowToast($"打开快递助手联动安装向导失败：{error}");
+                return;
+            }
+
+            UserscriptTargetState.MarkGuideOpened(
+                Config,
+                _webServer.GetRecordingDevices(MonitorAccessAddress, includeKnown: true));
+            RefreshUserscriptStatus();
         }
 
         private Mat BitmapToMat(Bitmap bitmap)

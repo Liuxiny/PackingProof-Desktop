@@ -154,13 +154,19 @@
                                FontWeight="Bold"
                                Foreground="{DynamicResource TextPrimary}"/>
                     <TextBlock Margin="0,7,0,0"
-                               Text="脚本会从主机读取录像设备列表，并把订单直接发送给所有在线录像设备"
+                               Text="脚本会读取最近使用过的录像设备，并把订单同时发送给所有设备"
+                               TextWrapping="Wrap"
+                               Foreground="{DynamicResource TextSecondary}"/>
+                    <TextBlock x:Name="UserscriptStatusTextBlock"
+                               Margin="0,7,0,0"
+                               Text="尚未配置订单联动"
                                TextWrapping="Wrap"
                                Foreground="{DynamicResource TextSecondary}"/>
                     <WrapPanel Margin="0,16,0,0">
-                        <Button Style="{StaticResource ActionButtonStyle}"
+                        <Button x:Name="InstallUserscriptButton"
+                                Style="{StaticResource ActionButtonStyle}"
                                 Click="InstallTool_Click"
-                                Content="安装快递助手联动"/>
+                                Content="安装订单联动"/>
                     </WrapPanel>
                 </StackPanel>
             </Border>
