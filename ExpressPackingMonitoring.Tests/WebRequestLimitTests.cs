@@ -105,6 +105,17 @@ public sealed class WebRequestLimitTests
     }
 
     [Fact]
+    public void VideoSearch_ProvidesDatabaseBackedSourceFilter()
+    {
+        string html = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Web", "index.html"));
+
+        Assert.Contains("id=\"videoSource\"", html);
+        Assert.Contains("<option value=\"\">全部设备</option>", html);
+        Assert.Contains("fetch('/api/video-sources'", html);
+        Assert.Contains("sourceType,deviceId,page:currentPage", html);
+    }
+
+    [Fact]
     public void MobileOverview_UsesCompactCardsAndDisablesCompatibilityOnFirstVisit()
     {
         string html = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Web", "index.html"));

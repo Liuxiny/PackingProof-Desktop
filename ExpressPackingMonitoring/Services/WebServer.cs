@@ -586,6 +586,9 @@ namespace ExpressPackingMonitoring.Services
                     case "/api/videos":
                         HandleSearchVideos(ctx);
                         break;
+                    case "/api/video-sources" when method == "GET":
+                        HandleVideoSources(ctx);
+                        break;
                     case "/api/videos/status" when method == "GET":
                         HandleVideoStatuses(ctx);
                         break;
@@ -696,6 +699,7 @@ namespace ExpressPackingMonitoring.Services
         {
             return path == ""
                 || path.StartsWith("/api/videos", StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith("/api/video-sources", StringComparison.OrdinalIgnoreCase)
                 || path.StartsWith("/api/clip", StringComparison.OrdinalIgnoreCase)
                 || path.Equals("/api/mobile-connection", StringComparison.OrdinalIgnoreCase);
         }
@@ -1783,9 +1787,16 @@ namespace ExpressPackingMonitoring.Services
             int page = int.TryParse(qs["page"], out var p) ? Math.Max(1, p) : 1;
             int pageSize = int.TryParse(qs["size"], out var s) ? Math.Clamp(s, 1, 100) : 50;
             string deviceId = qs["deviceId"] ?? "";
+            string sourceType = qs["sourceType"] ?? "";
 
-            var result = _db.QueryVideosPaged(startDate, endDate, string.IsNullOrWhiteSpace(keyword) ? null : keyword, page, pageSize);
-            int deviceTotal = _db.CountVideosForDevice(startDate, endDate, string.IsNullOrWhiteSpace(keyword) ? null : keyword, deviceId);
+            var result = _db.QueryVideosPaged(
+                startDate,
+                endDate,
+                string.IsNullOrWhiteSpace(keyword) ? null : keyword,
+                page,
+                pageSize,
+                sourceType: sourceType,
+                deviceId: deviceId);
             // SQL 层只取当前页，文件存在性仅对当前页记录检查。
             var paged = result.Records.Select(r => new
             {
@@ -1817,7 +1828,45 @@ namespace ExpressPackingMonitoring.Services
                 remote = true
             });
 
-            SendJson(ctx, 200, new { total = result.Total, deviceTotal, page, pageSize, data = paged });
+            SendJson(ctx, 200, new { total = result.Total, deviceTotal = result.Total, page, pageSize, data = paged });
+        }
+
+        private void HandleVideoSources(HttpListenerContext ctx)
+        {
+            var data = _db.GetVideoSources()
+                .Where(source => string.Equals(
+                        source.SourceType,
+                        "pc",
+                        StringComparison.OrdinalIgnoreCase)
+                    || !string.IsNullOrWhiteSpace(source.DeviceId))
+                .Select(source => new
+                {
+                    sourceType = string.Equals(
+                        source.SourceType,
+                        "external",
+                        StringComparison.OrdinalIgnoreCase)
+                            ? "external"
+                            : "pc",
+                    deviceId = source.DeviceId ?? "",
+                    name = string.Equals(
+                        source.SourceType,
+                        "external",
+                        StringComparison.OrdinalIgnoreCase)
+                            ? ResolveVideoSourceName(source.DeviceId, source.DeviceName)
+                            : "电脑",
+                    videoCount = source.VideoCount
+                });
+            SendJson(ctx, 200, new { data });
+        }
+
+        private static string ResolveVideoSourceName(string deviceId, string deviceName)
+        {
+            if (!string.IsNullOrWhiteSpace(deviceName))
+                return deviceName.Trim();
+            string normalized = new((deviceId ?? "").Where(char.IsLetterOrDigit).ToArray());
+            return normalized.Length == 0
+                ? "手机设备"
+                : $"设备 {normalized[^Math.Min(6, normalized.Length)..].ToUpperInvariant()}";
         }
 
         private void HandleVideoStatuses(HttpListenerContext ctx)

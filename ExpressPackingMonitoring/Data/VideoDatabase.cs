@@ -900,7 +900,15 @@ namespace ExpressPackingMonitoring.Data
             };
         }
 
-        public PagedVideoResult QueryVideosPaged(DateTime? startDate, DateTime? endDate, string keyword, int page, int pageSize, bool includeDeleted = false)
+        public PagedVideoResult QueryVideosPaged(
+            DateTime? startDate,
+            DateTime? endDate,
+            string keyword,
+            int page,
+            int pageSize,
+            bool includeDeleted = false,
+            string sourceType = "",
+            string deviceId = "")
         {
             return QueryVideosPaged(
                 startDate,
@@ -909,7 +917,9 @@ namespace ExpressPackingMonitoring.Data
                 page,
                 pageSize,
                 includeDeleted,
-                VideoSearchMode.BroadContains);
+                VideoSearchMode.BroadContains,
+                sourceType,
+                deviceId);
         }
 
         internal PagedVideoResult QueryVideosPaged(
@@ -919,12 +929,18 @@ namespace ExpressPackingMonitoring.Data
             int page,
             int pageSize,
             bool includeDeleted,
-            VideoSearchMode searchMode)
+            VideoSearchMode searchMode,
+            string sourceType = "",
+            string deviceId = "")
         {
             page = Math.Max(1, page);
             pageSize = Math.Clamp(pageSize, 1, 100);
             int offset = (page - 1) * pageSize;
             string normalizedKeyword = keyword?.Trim() ?? "";
+            string normalizedSourceType = sourceType?.Trim().ToLowerInvariant() ?? "";
+            string normalizedDeviceId = deviceId?.Trim() ?? "";
+            if (normalizedSourceType.Length == 0 && normalizedDeviceId.Length > 0)
+                normalizedSourceType = "external";
 
             lock (_lock)
             {
@@ -941,6 +957,18 @@ namespace ExpressPackingMonitoring.Data
 
                 if (!includeDeleted)
                     whereSql += " AND IsDeleted = 0";
+
+                if (normalizedSourceType is "pc" or "external")
+                {
+                    whereSql += " AND SourceType = @sourceType";
+                    countCmd.Parameters.AddWithValue("@sourceType", normalizedSourceType);
+                }
+
+                if (normalizedSourceType == "external" && normalizedDeviceId.Length > 0)
+                {
+                    whereSql += " AND SourceDeviceId = @deviceId";
+                    countCmd.Parameters.AddWithValue("@deviceId", normalizedDeviceId);
+                }
 
                 if (normalizedKeyword.Length > 0)
                 {
@@ -997,6 +1025,10 @@ namespace ExpressPackingMonitoring.Data
                         : $"%{normalizedKeyword}%";
                     cmd.Parameters.AddWithValue("@keyword", keywordParameter);
                 }
+                if (normalizedSourceType is "pc" or "external")
+                    cmd.Parameters.AddWithValue("@sourceType", normalizedSourceType);
+                if (normalizedSourceType == "external" && normalizedDeviceId.Length > 0)
+                    cmd.Parameters.AddWithValue("@deviceId", normalizedDeviceId);
 
                 var records = new List<VideoRecord>(pageSize);
                 using var reader = cmd.ExecuteReader();
@@ -1004,6 +1036,34 @@ namespace ExpressPackingMonitoring.Data
                     records.Add(ReadVideoRecord(reader));
 
                 return new PagedVideoResult { Total = total, Records = records };
+            }
+        }
+
+        public IReadOnlyList<VideoSourceInfo> GetVideoSources()
+        {
+            lock (_lock)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.CommandText = @"
+                    SELECT SourceType, SourceDeviceId, MAX(SourceDeviceName), COUNT(1)
+                    FROM VideoRecords
+                    WHERE IsDeleted = 0
+                    GROUP BY SourceType, SourceDeviceId
+                    ORDER BY SourceType, MAX(SourceDeviceName), SourceDeviceId;";
+                using var reader = cmd.ExecuteReader();
+                var result = new List<VideoSourceInfo>();
+                while (reader.Read())
+                {
+                    string sourceType = reader.IsDBNull(0) ? "pc" : reader.GetString(0);
+                    string deviceId = reader.IsDBNull(1) ? "" : reader.GetString(1);
+                    string deviceName = reader.IsDBNull(2) ? "" : reader.GetString(2);
+                    result.Add(new VideoSourceInfo(
+                        sourceType,
+                        deviceId,
+                        deviceName,
+                        reader.GetInt32(3)));
+                }
+                return result;
             }
         }
 
@@ -1510,6 +1570,12 @@ namespace ExpressPackingMonitoring.Data
     }
 
     public sealed record MobileBackupDailyCount(
+        string DeviceId,
+        string DeviceName,
+        int VideoCount);
+
+    public sealed record VideoSourceInfo(
+        string SourceType,
         string DeviceId,
         string DeviceName,
         int VideoCount);
