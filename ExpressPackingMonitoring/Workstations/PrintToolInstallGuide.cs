@@ -153,7 +153,10 @@ internal static class PrintToolInstallGuide
             $"const PACKING_PROOF_HOST = {JsonSerializer.Serialize(host == null ? null : new { host.NodeId, host.NodeName, host.Address })};",
             StringComparison.Ordinal);
 
-        List<Uri> addresses = NormalizeMonitorAddresses(devices.Select(device => device.Address));
+        IEnumerable<string> connectAddresses = devices.Select(device => device.Address);
+        if (!string.IsNullOrWhiteSpace(host?.Address))
+            connectAddresses = connectAddresses.Append(host.Address);
+        List<Uri> addresses = NormalizeMonitorAddresses(connectAddresses);
         customized = AddExactConnectPermissions(customized, addresses.Select(uri => uri.Host));
         return customized;
     }

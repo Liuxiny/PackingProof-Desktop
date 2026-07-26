@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         订单备注播报插件
 // @namespace    https://github.com/ExpressPackingMonitoring
-// @version      2.11
+// @version      2.12
 // @description  从快递助手批量打印页面提取订单备注和打印后退款状态，同时发送到已配对的电脑和手机
 // @author       ExpressPackingMonitoring
 // @icon         https://raw.githubusercontent.com/m-RNA/ExpressPackingMonitoring/main/ExpressPackingMonitoring/app.ico
@@ -33,6 +33,11 @@
     })();
     const DEFAULT_ADDRESS = DEFAULT_HOST ? `${DEFAULT_HOST}:${DEFAULT_PORT}` : '';
     const HOST_CHECK_TIMEOUT = 1200;
+    const RECORDER_STATUS_TIMEOUT = 900;
+    const RECORDER_STATUS_CACHE_MS = 15000;
+    const ONLINE_RECORDER_TIMEOUT = 3500;
+    const OFFLINE_RECORDER_TIMEOUT = 1800;
+    const UNKNOWN_RECORDER_TIMEOUT = 3000;
     const ORDER_LOOKUP_RECONNECT_MS = 250;
     const PRINTED_REFUND_QUERY_TIMEOUT_MS = 6000;
     const PRINTED_REFUND_STABLE_MS = 500;
@@ -50,7 +55,7 @@
     const CONNECTION_HEARTBEAT_INTERVAL_MS = 15000;
     const IS_REFUND_WORKER = new URL(location.href).searchParams.get(REFUND_WORKER_PARAM) === '1';
     const REFUND_WORKER_TOKEN = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const CHANGELOG = 'v2.11：固定群发到安装时写入的全部录像设备';
+    const CHANGELOG = 'v2.12：发送前按主机心跳状态优先投递在线录像设备';
     const DEBUG_LOG = false;
 
     let lastUserActivityAt = Date.now();
@@ -280,6 +285,59 @@
         return result;
     }
 
+    let recorderStatusCache = { checkedAt: 0, onlineEndpoints: null };
+    async function getOnlineRecorderEndpoints() {
+        const now = Date.now();
+        if (now - recorderStatusCache.checkedAt < RECORDER_STATUS_CACHE_MS) {
+            return recorderStatusCache.onlineEndpoints;
+        }
+
+        const baseUrl = getHostBaseUrl();
+        if (!baseUrl) return null;
+        const result = await gmGet(`${baseUrl}/api/recording-devices`, RECORDER_STATUS_TIMEOUT);
+        if (!result.ok || !Array.isArray(result.response?.devices)) {
+            recorderStatusCache = { checkedAt: now, onlineEndpoints: null };
+            return null;
+        }
+
+        const onlineEndpoints = new Set();
+        for (const device of result.response.devices) {
+            if (device?.online !== true) continue;
+            const address = normalizeAddress(device?.address || '', DEFAULT_PORT);
+            const endpoint = formatAddress(address);
+            if (!endpoint) continue;
+            onlineEndpoints.add(`${String(device?.nodeId || '').trim().toLowerCase()}|${endpoint.toLowerCase()}`);
+        }
+        recorderStatusCache = { checkedAt: now, onlineEndpoints };
+        return onlineEndpoints;
+    }
+
+    async function buildRecorderDeliveryPlan(devices) {
+        if (devices.length <= 1) {
+            return devices.map(device => ({ device, online: null, timeout: UNKNOWN_RECORDER_TIMEOUT }));
+        }
+
+        const onlineEndpoints = await getOnlineRecorderEndpoints();
+        if (onlineEndpoints === null) {
+            return devices.map(device => ({ device, online: null, timeout: UNKNOWN_RECORDER_TIMEOUT }));
+        }
+
+        return devices
+            .map((device, index) => {
+                const address = normalizeAddress(device.url, DEFAULT_PORT);
+                const endpoint = formatAddress(address).toLowerCase();
+                const key = `${String(device.nodeId || '').trim().toLowerCase()}|${endpoint}`;
+                const online = onlineEndpoints.has(key);
+                return {
+                    device,
+                    online,
+                    timeout: online ? ONLINE_RECORDER_TIMEOUT : OFFLINE_RECORDER_TIMEOUT,
+                    index
+                };
+            })
+            .sort((left, right) => Number(right.online) - Number(left.online) || left.index - right.index);
+    }
+
     function getHostAddress() {
         const value = PACKING_PROOF_HOST?.address || PACKING_PROOF_HOST?.Address || '';
         return normalizeAddress(value, DEFAULT_PORT);
@@ -474,7 +532,7 @@
     }
 
     // ============ 群发到录像设备 ============
-    function sendOrderToRecorder(device, orders) {
+    function sendOrderToRecorder(device, orders, timeout) {
         const address = normalizeAddress(device?.url || '', DEFAULT_PORT);
         return new Promise(resolve => {
             GM_xmlhttpRequest({
@@ -482,7 +540,7 @@
                 url: `${getBaseUrl(address.host, address.port)}/api/orderinfo`,
                 headers: { 'Content-Type': 'application/json; charset=utf-8' },
                 data: JSON.stringify(orders),
-                timeout: 5000,
+                timeout,
                 onload: res => resolve({
                     nodeId: device.nodeId,
                     name: device.name,
@@ -503,16 +561,17 @@
         if (!orders || orders.length === 0) return { ok: false, confirmed: false, error: 'empty' };
         const devices = getRecorderDevices();
         if (devices.length === 0) return { ok: false, confirmed: false, error: 'no_recorders', results: [] };
+        const deliveryPlan = await buildRecorderDeliveryPlan(devices);
         const settled = await Promise.allSettled(
-            devices.map(device => sendOrderToRecorder(device, orders))
+            deliveryPlan.map(item => sendOrderToRecorder(item.device, orders, item.timeout))
         );
         const results = settled.map((entry, index) => entry.status === 'fulfilled'
             ? entry.value
             : {
-                nodeId: devices[index].nodeId,
-                name: devices[index].name,
-                type: devices[index].type,
-                address: devices[index].url,
+                nodeId: deliveryPlan[index].device.nodeId,
+                name: deliveryPlan[index].device.name,
+                type: deliveryPlan[index].device.type,
+                address: deliveryPlan[index].device.url,
                 ok: false,
                 error: entry.reason?.message || String(entry.reason || 'unknown')
             });

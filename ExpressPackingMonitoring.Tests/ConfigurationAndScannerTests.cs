@@ -271,7 +271,11 @@ public sealed class ConfigurationAndScannerTests
         Assert.Contains("GM_registerMenuCommand('立即发送当前订单'", script);
         Assert.Contains("const PACKING_PROOF_RECORDERS = []", script);
         Assert.Contains("Promise.allSettled(", script);
-        Assert.Contains("devices.map(device => sendOrderToRecorder(device, orders))", script);
+        Assert.Contains("getOnlineRecorderEndpoints()", script);
+        Assert.Contains("/api/recording-devices", script);
+        Assert.Contains("RECORDER_STATUS_TIMEOUT = 900", script);
+        Assert.Contains("OFFLINE_RECORDER_TIMEOUT = 1800", script);
+        Assert.Contains("deliveryPlan.map(item => sendOrderToRecorder(item.device, orders, item.timeout))", script);
         Assert.Contains("console.warn(`[PackingProof] ${result.name}", script);
         Assert.Contains("successfulCount: successful.length", script);
         Assert.Contains("result.response?.protocol === 'packingproof'", script);
@@ -311,6 +315,33 @@ public sealed class ConfigurationAndScannerTests
         Assert.Contains("// @connect      192.168.1.20", customized);
         Assert.Contains("// @connect      192.168.1.31", customized);
         Assert.DoesNotContain("127.0.0.1", customized);
+    }
+
+    [Fact]
+    public void AddRecordingDevices_AddsHostConnectPermissionWhenHostIsNotRecorder()
+    {
+        const string script = "// ==UserScript==\n// PACKING_PROOF_CONNECT_TARGETS\n// ==/UserScript==\nconst PACKING_PROOF_RECORDERS = [];\nconst PACKING_PROOF_HOST = null;";
+        var devices = new[]
+        {
+            new RecordingDeviceInfo
+            {
+                NodeId = "mobile-node",
+                NodeName = "手机1",
+                DeviceType = "mobile",
+                Address = "http://192.168.1.31:5281"
+            }
+        };
+        var host = new PackingProofNodeInfo
+        {
+            NodeId = "backup-host",
+            NodeName = "手机备份主机",
+            Address = "http://192.168.1.20:5280"
+        };
+
+        string customized = PrintToolInstallGuide.AddRecordingDevices(script, devices, host);
+
+        Assert.Contains("// @connect      192.168.1.20", customized);
+        Assert.Contains("// @connect      192.168.1.31", customized);
     }
 
     [Fact]

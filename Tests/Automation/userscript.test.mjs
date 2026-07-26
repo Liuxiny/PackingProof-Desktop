@@ -209,6 +209,11 @@ test('order push broadcasts to every paired receiver and tolerates one offline d
   ];
   const context = {
     DEFAULT_PORT: 5280,
+    RECORDER_STATUS_TIMEOUT: 900,
+    RECORDER_STATUS_CACHE_MS: 15000,
+    ONLINE_RECORDER_TIMEOUT: 3500,
+    OFFLINE_RECORDER_TIMEOUT: 1800,
+    UNKNOWN_RECORDER_TIMEOUT: 3000,
     normalizeAddress: value => {
       if (/^https?:\/\//i.test(String(value))) {
         const url = new URL(String(value));
@@ -219,10 +224,25 @@ test('order push broadcasts to every paired receiver and tolerates one offline d
     },
     formatAddress: address => `${address.host}:${address.port}`,
     getBaseUrl: (host, port) => `http://${host}:${port}`,
+    getHostBaseUrl: () => 'http://192.168.31.250:5280',
     getRecorderDevices: () => devices,
+    gmGet: async (url, timeout) => {
+      assert.equal(url, 'http://192.168.31.250:5280/api/recording-devices');
+      assert.equal(timeout, 900);
+      return {
+        ok: true,
+        response: {
+          devices: [{
+            nodeId: 'pc',
+            address: 'http://192.168.31.250:5280',
+            online: true
+          }]
+        }
+      };
+    },
     parseJsonResponse: text => JSON.parse(text || '{}'),
     GM_xmlhttpRequest: options => {
-      requests.push(options.url);
+      requests.push({ url: options.url, timeout: options.timeout });
       queueMicrotask(() => {
         if (options.url.includes('192.168.31.250'))
           options.onload({ status: 200, responseText: '{"ok":true,"testCount":1}' });
@@ -241,17 +261,73 @@ test('order push broadcasts to every paired receiver and tolerates one offline d
   };
   vm.createContext(context);
   vm.runInContext(
+    between('    let recorderStatusCache', '    function getHostAddress()') +
     between('    function sendOrderToRecorder(', '    function requestMonitor(') +
       ';globalThis.pushOrders=pushToMonitor;',
     context);
 
   const result = await context.pushOrders([{ trackingNumber: 'TRACK-1' }], { isTest: true });
   assert.equal(requests.length, 2);
+  assert.match(requests[0].url, /192\.168\.31\.250/);
+  assert.equal(requests[0].timeout, 3500);
+  assert.match(requests[1].url, /192\.168\.31\.205/);
+  assert.equal(requests[1].timeout, 1800);
   assert.equal(result.ok, true);
   assert.equal(result.confirmed, true);
   assert.equal(result.successfulCount, 1);
   assert.equal(result.targetCount, 2);
   assert.match(notifications[0], /1\/2/);
+});
+
+test('order push still broadcasts to every recorder when host status lookup fails', async () => {
+  const requests = [];
+  const devices = [
+    { nodeId: 'pc', name: 'PC recorder', type: 'pc', url: 'http://192.168.31.250:5280' },
+    { nodeId: 'phone', name: 'Phone recorder', type: 'mobile', url: 'http://192.168.31.205:5280' }
+  ];
+  const context = {
+    DEFAULT_PORT: 5280,
+    RECORDER_STATUS_TIMEOUT: 900,
+    RECORDER_STATUS_CACHE_MS: 15000,
+    ONLINE_RECORDER_TIMEOUT: 3500,
+    OFFLINE_RECORDER_TIMEOUT: 1800,
+    UNKNOWN_RECORDER_TIMEOUT: 3000,
+    normalizeAddress: value => {
+      const url = new URL(String(value));
+      return { host: url.hostname, port: Number(url.port || 5280) };
+    },
+    formatAddress: address => `${address.host}:${address.port}`,
+    getBaseUrl: (host, port) => `http://${host}:${port}`,
+    getHostBaseUrl: () => 'http://192.168.31.250:5280',
+    getRecorderDevices: () => devices,
+    gmGet: async () => ({ ok: false, response: {} }),
+    parseJsonResponse: text => JSON.parse(text || '{}'),
+    GM_xmlhttpRequest: options => {
+      requests.push({ url: options.url, timeout: options.timeout });
+      queueMicrotask(() => options.onload({ status: 200, responseText: '{"ok":true}' }));
+    },
+    showNotification() {},
+    console: { info() {}, warn() {} },
+    Promise,
+    Number,
+    String,
+    JSON,
+    URL,
+    Date,
+    Set
+  };
+  vm.createContext(context);
+  vm.runInContext(
+    between('    let recorderStatusCache', '    function getHostAddress()') +
+      between('    function sendOrderToRecorder(', '    function requestMonitor(') +
+      ';globalThis.pushOrders=pushToMonitor;',
+    context);
+
+  const result = await context.pushOrders([{ trackingNumber: 'TRACK-1' }], {});
+
+  assert.equal(result.successfulCount, 2);
+  assert.equal(requests.length, 2);
+  assert.deepEqual(requests.map(request => request.timeout), [3000, 3000]);
 });
 
 function createConnectionHeartbeatContext(status = 200) {
