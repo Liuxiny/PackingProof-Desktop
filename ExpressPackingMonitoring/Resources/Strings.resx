@@ -385,6 +385,7 @@
   <data name="Main.PrintTestOrder" xml:space="preserve"><value>Phone recording backup: {0} Test order received</value></data>
   <data name="Main.PrintNoRefund" xml:space="preserve"><value>Phone recording backup: {0} Responded; no refund orders found</value></data>
   <data name="Main.PrintOrders" xml:space="preserve"><value>Phone recording backup: {0} Received {1} orders</value></data>
+  <data name="订单联动" xml:space="preserve"><value>Order integration</value></data>
   <data name="Main.ConnectionServiceDisabled" xml:space="preserve"><value>Connection service is off</value></data>
   <data name="Main.ConnectionServiceStarting" xml:space="preserve"><value>Preparing connections</value></data>
   <data name="Main.ConnectionServiceUnavailable" xml:space="preserve"><value>Connections unavailable</value></data>

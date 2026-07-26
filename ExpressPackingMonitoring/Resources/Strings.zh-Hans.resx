@@ -385,6 +385,7 @@
   <data name="Main.PrintTestOrder" xml:space="preserve"><value>手机录像备份：{0} 收到测试订单</value></data>
   <data name="Main.PrintNoRefund" xml:space="preserve"><value>手机录像备份：{0} 已响应，未查到退款订单</value></data>
   <data name="Main.PrintOrders" xml:space="preserve"><value>手机录像备份：{0} 收到 {1} 条订单</value></data>
+  <data name="订单联动" xml:space="preserve"><value>订单联动</value></data>
   <data name="Main.ConnectionServiceDisabled" xml:space="preserve"><value>连接服务未开启</value></data>
   <data name="Main.ConnectionServiceStarting" xml:space="preserve"><value>正在准备连接服务</value></data>
   <data name="Main.ConnectionServiceUnavailable" xml:space="preserve"><value>连接服务不可用</value></data>
