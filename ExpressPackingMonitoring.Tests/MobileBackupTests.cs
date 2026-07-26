@@ -150,6 +150,66 @@ public sealed class MobileBackupTests
     }
 
     [Fact]
+    public async Task ActiveUploadWaitsUntilBackupCompletes()
+    {
+        string directory = CreateTempDirectory();
+        try
+        {
+            byte[] file = Encoding.UTF8.GetBytes("active mobile backup payload");
+            string fileSha = Sha256(file);
+            using var database = new VideoDatabase(Path.Combine(directory, "videos.db"));
+            var service = CreateService(database, directory);
+            var activity = new List<bool>();
+            service.ActiveUploadsChanged += activity.Add;
+
+            service.CreateOrResume(CreateRequest(fileSha, file.Length));
+            Task idle = service.WaitForIdleAsync(TestContext.Current.CancellationToken);
+
+            Assert.True(service.HasActiveUploads);
+            Assert.False(idle.IsCompleted);
+
+            service.AppendChunk(fileSha, 0, file.Length - 1, file.Length, file, fileSha);
+            service.Complete(
+                fileSha,
+                CompleteRequest(fileSha, "session-active", "TRACK-ACTIVE", "phone-active", "手机"));
+
+            await idle;
+            Assert.False(service.HasActiveUploads);
+            Assert.Equal([true, false], activity);
+        }
+        finally
+        {
+            DeleteTempDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public async Task ActiveUploadWaitCanBeCancelledWithoutClearingResumeState()
+    {
+        string directory = CreateTempDirectory();
+        try
+        {
+            byte[] file = Encoding.UTF8.GetBytes("cancelled wait payload");
+            string fileSha = Sha256(file);
+            using var database = new VideoDatabase(Path.Combine(directory, "videos.db"));
+            var service = CreateService(database, directory);
+            service.CreateOrResume(CreateRequest(fileSha, file.Length));
+            using var cancellation = new CancellationTokenSource();
+
+            Task wait = service.WaitForIdleAsync(cancellation.Token);
+            cancellation.Cancel();
+
+            await Assert.ThrowsAsync<TaskCanceledException>(() => wait);
+            Assert.True(service.HasActiveUploads);
+            Assert.Equal(0, service.CreateOrResume(CreateRequest(fileSha, file.Length)).Offset);
+        }
+        finally
+        {
+            DeleteTempDirectory(directory);
+        }
+    }
+
+    [Fact]
     public void MergeOrderInfo_PrefersComputerFieldsAndPreservesMobileRefund()
     {
         var computer = new OrderInfo

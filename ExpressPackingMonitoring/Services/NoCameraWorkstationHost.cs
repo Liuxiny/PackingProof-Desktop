@@ -26,6 +26,7 @@ internal sealed class NoCameraWorkstationHost : IDisposable
 
     public bool IsRunning => _server != null;
     public bool HasDatabase => _database != null;
+    public bool HasActiveMobileBackups => _server?.HasActiveMobileBackups == true;
     public bool IsLanAvailable { get; private set; }
     public string StoragePath { get; private set; } = "";
     public string LocalPlaybackUrl { get; private set; } = "";
@@ -35,6 +36,10 @@ internal sealed class NoCameraWorkstationHost : IDisposable
         _database ?? throw new InvalidOperationException("录像数据库尚未打开");
     public event Action<MobileAppUpdateAvailableInfo>? MobileAppUpdateAvailable;
     public event Action? MobileBackupStatusChanged;
+    public event Action<bool>? MobileBackupActivityChanged;
+
+    public Task WaitForMobileBackupsAsync(CancellationToken cancellationToken = default) =>
+        _server?.WaitForMobileBackupsAsync(cancellationToken) ?? Task.CompletedTask;
 
     public IReadOnlyList<RecordingDeviceInfo> GetRecordingDevices(bool includeKnown = false)
     {
@@ -191,6 +196,10 @@ internal sealed class NoCameraWorkstationHost : IDisposable
         server.MobileBackupCompleted += (_, _) =>
         {
             try { MobileBackupStatusChanged?.Invoke(); } catch { }
+        };
+        server.MobileBackupActivityChanged += hasActive =>
+        {
+            try { MobileBackupActivityChanged?.Invoke(hasActive); } catch { }
         };
         return server;
     }

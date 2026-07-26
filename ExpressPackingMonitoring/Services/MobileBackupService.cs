@@ -23,6 +23,20 @@ internal sealed class MobileBackupService
     private readonly Func<string> _recordingRootResolver;
     private readonly Func<string, OrderInfo?> _orderInfoResolver;
     private readonly ConcurrentDictionary<string, object> _uploadLocks = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _activeUploadsLock = new();
+    private readonly HashSet<string> _activeUploads = new(StringComparer.OrdinalIgnoreCase);
+    private TaskCompletionSource<bool> _uploadsIdle =
+        CreateCompletedIdleSource();
+
+    internal event Action<bool>? ActiveUploadsChanged;
+    internal bool HasActiveUploads
+    {
+        get
+        {
+            lock (_activeUploadsLock)
+                return _activeUploads.Count > 0;
+        }
+    }
 
     public MobileBackupService(
         VideoDatabase database,
@@ -56,7 +70,10 @@ internal sealed class MobileBackupService
             {
                 long existingLength = new FileInfo(existing.FilePath).Length;
                 if (existingLength == request.TotalBytes)
+                {
+                    MarkUploadCompleted(uploadId);
                     return new MobileBackupCreateResult(uploadId, existingLength, ChunkSizeBytes, true);
+                }
             }
 
             MobileBackupUploadState? state = LoadState(uploadId);
@@ -70,12 +87,16 @@ internal sealed class MobileBackupService
                 }
 
                 if (TryUseStateFinalFile(state, out _, out long completedSize))
+                {
+                    MarkUploadCompleted(uploadId);
                     return new MobileBackupCreateResult(uploadId, completedSize, ChunkSizeBytes, true);
+                }
 
                 long offset = File.Exists(PartPath(uploadId)) ? new FileInfo(PartPath(uploadId)).Length : 0;
                 state.ReceivedBytes = offset;
                 state.UpdatedAtUtc = DateTime.UtcNow;
                 SaveState(state);
+                MarkUploadActive(uploadId);
                 return new MobileBackupCreateResult(uploadId, offset, ChunkSizeBytes, false);
             }
 
@@ -90,8 +111,19 @@ internal sealed class MobileBackupService
                 UpdatedAtUtc = DateTime.UtcNow
             };
             SaveState(state);
+            MarkUploadActive(uploadId);
             return new MobileBackupCreateResult(uploadId, 0, ChunkSizeBytes, false);
         }
+    }
+
+    internal Task WaitForIdleAsync(CancellationToken cancellationToken = default)
+    {
+        Task idleTask;
+        lock (_activeUploadsLock)
+            idleTask = _uploadsIdle.Task;
+        return cancellationToken.CanBeCanceled
+            ? idleTask.WaitAsync(cancellationToken)
+            : idleTask;
     }
 
     public long AppendChunk(
@@ -161,6 +193,7 @@ internal sealed class MobileBackupService
             if (existingRecords.All(record => record != null))
             {
                 long[] completedIds = existingRecords.Select(record => record!.Id).ToArray();
+                MarkUploadCompleted(uploadId);
                 return new MobileBackupCompleteResult("verified", fileSha256, completedIds[0], completedIds, true);
             }
 
@@ -242,6 +275,7 @@ internal sealed class MobileBackupService
             }
 
             DeleteStateFile(uploadId);
+            MarkUploadCompleted(uploadId);
             return new MobileBackupCompleteResult("verified", fileSha256, recordIds[0], recordIds, false);
         }
     }
@@ -408,6 +442,46 @@ internal sealed class MobileBackupService
     {
         TryDelete(StatePath(uploadId));
         TryDelete($"{StatePath(uploadId)}.tmp");
+        MarkUploadCompleted(uploadId);
+    }
+
+    private void MarkUploadActive(string uploadId)
+    {
+        bool changed;
+        lock (_activeUploadsLock)
+        {
+            if (_activeUploads.Count == 0)
+                _uploadsIdle = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            changed = _activeUploads.Add(uploadId);
+        }
+        if (changed)
+        {
+            try { ActiveUploadsChanged?.Invoke(true); } catch { }
+        }
+    }
+
+    private void MarkUploadCompleted(string uploadId)
+    {
+        TaskCompletionSource<bool>? completed = null;
+        bool changed;
+        lock (_activeUploadsLock)
+        {
+            changed = _activeUploads.Remove(uploadId);
+            if (changed && _activeUploads.Count == 0)
+                completed = _uploadsIdle;
+        }
+        completed?.TrySetResult(true);
+        if (changed)
+        {
+            try { ActiveUploadsChanged?.Invoke(HasActiveUploads); } catch { }
+        }
+    }
+
+    private static TaskCompletionSource<bool> CreateCompletedIdleSource()
+    {
+        var source = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        source.SetResult(true);
+        return source;
     }
 
     private static void TryDelete(string path)

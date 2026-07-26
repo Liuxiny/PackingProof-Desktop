@@ -241,8 +241,7 @@ public partial class ViewerClientWindow : Window
                 selector.SelectedPreset,
                 StringComparison.OrdinalIgnoreCase))
         {
-            AppDialog.ShowMessage(this, "当前已经是连接已有主机用途", "切换用途",
-                AppDialogSeverity.Information);
+            OnlineStatusText.Text = "当前已经是连接已有主机用途";
             return;
         }
 
@@ -270,7 +269,7 @@ public partial class ViewerClientWindow : Window
         _config.DeploymentSchemaVersion = savedConfig.DeploymentSchemaVersion;
         _config.WorkstationRole = savedConfig.WorkstationRole;
         _config.EnableWebServer = savedConfig.EnableWebServer;
-        WorkstationNetwork.AskRestart(this);
+        WorkstationNetwork.RestartAfterPurposeChange(this);
     }
 
     private void CompleteDeploymentSetup(PackingProofNodeInfo node)

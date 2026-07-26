@@ -718,10 +718,18 @@
                                     <RowDefinition Height="8"/>
                                     <RowDefinition Height="Auto"/>
                                 </Grid.RowDefinitions>
-                                <Button x:Name="BtnSwitchWorkstation" Grid.Column="0" Height="32" Padding="9,0" Style="{StaticResource SecondaryButtonStyle}" ToolTip="切换用途" Cursor="Hand" Focusable="False">
+                                <Button x:Name="BtnSwitchWorkstation"
+                                        Grid.Column="0"
+                                        Height="32"
+                                        Padding="9,0"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        ToolTip="切换用途"
+                                        Cursor="Hand"
+                                        Focusable="False"
+                                        IsEnabled="{Binding CanSwitchWorkstation}">
                                     <StackPanel Orientation="Horizontal" IsHitTestVisible="False">
                                         <Path Data="{StaticResource FluentArrowSwapIcon}" Width="14" Height="14" Stretch="Uniform" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                                        <TextBlock Text="切换用途" Margin="5,0,0,0" FontSize="12" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding SwitchWorkstationButtonText}" Margin="5,0,0,0" FontSize="12" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
                                 <Button x:Name="BtnMobileConnection"

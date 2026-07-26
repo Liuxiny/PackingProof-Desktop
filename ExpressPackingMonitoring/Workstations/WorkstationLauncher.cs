@@ -867,20 +867,17 @@ public static class WorkstationNetwork
         }
     }
 
-    public static void AskRestart(Window? owner = null)
+    public static bool RestartAfterPurposeChange(Window? owner = null)
     {
-        bool shouldRestart = AppDialog.Confirm(
+        if (TryRestartApplication("workstation-role-change", owner))
+            return true;
+
+        AppDialog.ShowMessage(
             owner,
-            AppLanguage.Get("RestartMode.Message"),
-            AppLanguage.Get("切换用途"),
-            confirmText: AppLanguage.Get("立即重启"),
-            cancelText: AppLanguage.Get("稍后再说"),
-            severity: AppDialogSeverity.Information,
-            isDangerous: false);
-        if (shouldRestart && !TryRestartApplication("workstation-role-change", owner))
-        {
-            AppDialog.ShowMessage(owner, "自动重启失败，请手动关闭后重新打开程序。", "切换用途", AppDialogSeverity.Information);
-        }
+            "自动重启失败，请手动关闭后重新打开程序",
+            "切换用途",
+            AppDialogSeverity.Error);
+        return false;
     }
 
     private static IEnumerable<string> GetLocalIpv4Prefixes()

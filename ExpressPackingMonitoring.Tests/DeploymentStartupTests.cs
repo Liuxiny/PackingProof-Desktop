@@ -134,7 +134,7 @@ public sealed class DeploymentStartupTests
     }
 
     [Fact]
-    public void ViewerClientExposesPurposeSwitchAndUsesSharedRestartFlow()
+    public void PurposeSwitchUsesDirectRestartAndDisablesRecordingHostButton()
     {
         string viewerXaml = ReadRepositoryFile(
             "ExpressPackingMonitoring",
@@ -156,9 +156,46 @@ public sealed class DeploymentStartupTests
         Assert.Contains("Content=\"切换用途\"", viewerXaml, StringComparison.Ordinal);
         Assert.Contains("Click=\"SwitchPurpose_Click\"", viewerXaml, StringComparison.Ordinal);
         Assert.Contains("Text=\"切换用途\"", mobileBackupXaml, StringComparison.Ordinal);
-        Assert.Contains("Text=\"切换用途\"", recordingXaml, StringComparison.Ordinal);
+        Assert.Contains("Text=\"{Binding SwitchWorkstationButtonText}\"", recordingXaml, StringComparison.Ordinal);
+        Assert.Contains("IsEnabled=\"{Binding CanSwitchWorkstation}\"", recordingXaml, StringComparison.Ordinal);
         Assert.Contains("new WorkstationSelectionWindow { Owner = this }", source, StringComparison.Ordinal);
-        Assert.Contains("WorkstationNetwork.AskRestart(this)", source, StringComparison.Ordinal);
+        Assert.Contains("WorkstationNetwork.RestartAfterPurposeChange(this)", source, StringComparison.Ordinal);
+
+        string launcher = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "Workstations",
+            "WorkstationLauncher.cs");
+        Assert.DoesNotContain("AskRestart(", launcher, StringComparison.Ordinal);
+        Assert.DoesNotContain("AppDialog.Confirm(", launcher, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HostPurposeSwitchWaitsBeforeSavingAndCanBeCancelled()
+    {
+        string mobileSource = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "Workstations",
+            "PrintWorkstationWindow.xaml.cs");
+        string recordingSource = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "ViewModels",
+            "MainViewModel.cs");
+        string mobileSwitch = mobileSource[mobileSource.IndexOf(
+            "private async Task<bool> RunPurposeSwitchAsync",
+            StringComparison.Ordinal)..];
+        string recordingSwitch = recordingSource[recordingSource.IndexOf(
+            "private async Task<bool> RunPurposeSwitchAsync",
+            StringComparison.Ordinal)..];
+
+        int mobileWait = mobileSwitch.IndexOf("await _host.WaitForMobileBackupsAsync", StringComparison.Ordinal);
+        int mobileSave = mobileSwitch.IndexOf("if (!savePurpose())", StringComparison.Ordinal);
+        Assert.True(mobileWait >= 0 && mobileWait < mobileSave);
+        Assert.Contains("_lifetimeCts.Token", mobileSwitch, StringComparison.Ordinal);
+        int recordingWait = recordingSwitch.IndexOf("await _webServer.WaitForMobileBackupsAsync", StringComparison.Ordinal);
+        int recordingSave = recordingSwitch.IndexOf("if (!SaveConfig(nextConfig", StringComparison.Ordinal);
+        Assert.True(recordingWait >= 0 && recordingWait < recordingSave);
+        Assert.Contains("while (IsRecording)", recordingSwitch, StringComparison.Ordinal);
+        Assert.Contains("_purposeSwitchCts.Cancel()", recordingSource, StringComparison.Ordinal);
     }
 
     [Fact]

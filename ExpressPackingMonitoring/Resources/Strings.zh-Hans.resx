@@ -606,4 +606,5 @@
   <data name="个" xml:space="preserve"><value>个</value></data>
   <data name="已打开订单联动安装向导" xml:space="preserve"><value>已打开订单联动安装向导</value></data>
   <data name="当前已经是接收手机录像用途" xml:space="preserve"><value>当前已经是接收手机录像用途</value></data>
+  <data name="手机录像正在备份，完成后将自动重启" xml:space="preserve"><value>手机录像正在备份，完成后将自动重启</value></data>
 </root>

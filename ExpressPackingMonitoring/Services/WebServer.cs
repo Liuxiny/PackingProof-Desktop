@@ -116,9 +116,13 @@ namespace ExpressPackingMonitoring.Services
         internal event Action<IReadOnlyList<ConnectedClientInfo>> ConnectedClientsChanged;
         internal event Action<MobileAppUpdateAvailableInfo> MobileAppUpdateAvailable;
         internal event Action<string, string> MobileBackupCompleted;
+        internal event Action<bool> MobileBackupActivityChanged;
 
         public int Port { get; }
         public bool EnableOrderInfoLog { get; set; }
+        internal bool HasActiveMobileBackups => _mobileBackupService.HasActiveUploads;
+        internal Task WaitForMobileBackupsAsync(CancellationToken cancellationToken = default) =>
+            _mobileBackupService.WaitForIdleAsync(cancellationToken);
 
         private void Log(string msg)
         {
@@ -197,6 +201,10 @@ namespace ExpressPackingMonitoring.Services
                 resolvedMobileBackupStateDirectory,
                 mobileBackupRecordingRootResolver ?? (() => Path.Combine(AppPaths.UserDataDir, "mobile-backup-recordings")),
                 GetOrderInfo);
+            _mobileBackupService.ActiveUploadsChanged += hasActive =>
+            {
+                try { MobileBackupActivityChanged?.Invoke(hasActive); } catch { }
+            };
             _mobileOrderReceivers = new MobileOrderReceiverRegistry(
                 Path.Combine(resolvedMobileBackupStateDirectory, "order-receivers.json"));
             _connectedClients = new ConnectedClientRegistry();

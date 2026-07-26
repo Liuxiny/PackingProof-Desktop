@@ -247,6 +247,9 @@ namespace ExpressPackingMonitoring.ViewModels
         private bool _hasConnectedDevices;
         private string _monitorAccessAddress = "";
         private int _workstationAddressRefreshVersion;
+        private bool _purposeSwitchPending;
+        private string _switchWorkstationButtonText = "切换用途";
+        private readonly CancellationTokenSource _purposeSwitchCts = new();
 
         private int _totalPieces;
         private TimeSpan _totalPackTime;
@@ -390,6 +393,7 @@ namespace ExpressPackingMonitoring.ViewModels
             set
             {
                 if (!SetProperty(ref _isRecording, value)) return;
+                OnPropertyChanged(nameof(CanSwitchWorkstation));
                 ScheduleRefreshBarcodes();
                 if (!value)
                 {
@@ -1255,6 +1259,12 @@ namespace ExpressPackingMonitoring.ViewModels
             TimeSpan remaining = PrintedRefundLookupInterval - (nowUtc - lastRequestUtc);
             return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
         }
+        public bool CanSwitchWorkstation => !IsRecording && !_purposeSwitchPending;
+        public string SwitchWorkstationButtonText
+        {
+            get => _switchWorkstationButtonText;
+            private set => SetProperty(ref _switchWorkstationButtonText, value);
+        }
 
         internal static OrderInfo ResolvePrintedRefundOrderForAlert(
             OrderLookupResult lookupResult,
@@ -1786,6 +1796,9 @@ namespace ExpressPackingMonitoring.ViewModels
                     bool webServerNeedsRecovery = nextConfig.EnableWebServer && _webServer == null;
 
                     AppConfig.NormalizeAfterLoad(nextConfig);
+                    if (workstationChanged)
+                        return await RunPurposeSwitchAsync(nextConfig);
+
                     if (!SaveConfig(nextConfig, notifyUser: true))
                         return false;
                     Config = nextConfig;
@@ -1838,11 +1851,7 @@ namespace ExpressPackingMonitoring.ViewModels
                         _ = RefreshWorkstationStatusAsync();
                     }
 
-                    if (workstationChanged)
-                    {
-                        WorkstationNetwork.AskRestart(Application.Current?.MainWindow);
-                    }
-                    else if (cameraChanged)
+                    if (cameraChanged)
                     {
                         if (IsRecording)
                         {
@@ -2869,8 +2878,11 @@ namespace ExpressPackingMonitoring.ViewModels
             return "";
         }
 
-        public void SwitchWorkstation()
+        public async void SwitchWorkstation()
         {
+            if (!CanSwitchWorkstation)
+                return;
+
             var selector = new WorkstationSelectionWindow { Owner = Application.Current?.MainWindow };
             if (selector.ShowDialog() == true && !string.IsNullOrWhiteSpace(selector.SelectedPreset))
             {
@@ -2899,24 +2911,61 @@ namespace ExpressPackingMonitoring.ViewModels
                     return;
                 }
 
-                string previousPreset = Config.DeploymentPreset;
-                string previousRole = Config.WorkstationRole;
-                bool previousEnableWebServer = Config.EnableWebServer;
-                Config.DeploymentPreset = selector.SelectedPreset;
-                Config.WorkstationRole = selector.SelectedPreset == DeploymentPresets.MobileBackupHost
+                AppConfig nextConfig =
+                    JsonSerializer.Deserialize<AppConfig>(JsonSerializer.Serialize(Config)) ?? new AppConfig();
+                nextConfig.DeploymentPreset = selector.SelectedPreset;
+                nextConfig.WorkstationRole = selector.SelectedPreset == DeploymentPresets.MobileBackupHost
                     ? WorkstationRoles.PrintStation
                     : "";
-                Config.EnableWebServer = DeploymentCapabilities
+                nextConfig.EnableWebServer = DeploymentCapabilities
                     .ForPreset(selector.SelectedPreset)
                     .CanRunWebServer;
-                if (!SaveConfig(notifyUser: true))
+                await RunPurposeSwitchAsync(nextConfig);
+            }
+        }
+
+        private async Task<bool> RunPurposeSwitchAsync(AppConfig nextConfig)
+        {
+            if (_purposeSwitchPending || IsRecording)
+                return false;
+
+            _purposeSwitchPending = true;
+            OnPropertyChanged(nameof(CanSwitchWorkstation));
+            SwitchWorkstationButtonText = "正在切换";
+            try
+            {
+                if (_webServer?.HasActiveMobileBackups == true)
                 {
-                    Config.DeploymentPreset = previousPreset;
-                    Config.WorkstationRole = previousRole;
-                    Config.EnableWebServer = previousEnableWebServer;
-                    return;
+                    SwitchWorkstationButtonText = "等待备份完成";
+                    ShowToast("手机录像正在备份，完成后将自动重启");
+                    await _webServer.WaitForMobileBackupsAsync(_purposeSwitchCts.Token);
                 }
-                WorkstationNetwork.AskRestart(Application.Current?.MainWindow);
+
+                while (IsRecording)
+                {
+                    SwitchWorkstationButtonText = "等待录像完成";
+                    await Task.Delay(250, _purposeSwitchCts.Token);
+                }
+
+                _purposeSwitchCts.Token.ThrowIfCancellationRequested();
+                if (!SaveConfig(nextConfig, notifyUser: true))
+                    return false;
+
+                Config = nextConfig;
+                return WorkstationNetwork.RestartAfterPurposeChange(Application.Current?.MainWindow);
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+            finally
+            {
+                if (!WorkstationNetwork.IsRestartPending)
+                {
+                    _purposeSwitchPending = false;
+                    SwitchWorkstationButtonText = "切换用途";
+                    OnPropertyChanged(nameof(CanSwitchWorkstation));
+                }
             }
         }
 
@@ -4198,6 +4247,8 @@ namespace ExpressPackingMonitoring.ViewModels
             _alertService?.Dispose();
             _speechService?.Dispose();
             _speechService = null;
+            _purposeSwitchCts.Cancel();
+            _purposeSwitchCts.Dispose();
             try { _globalKeyHook?.Dispose(); } catch { }
             try { _webServer?.Dispose(); } catch { }
             try { _db?.Dispose(); } catch { }

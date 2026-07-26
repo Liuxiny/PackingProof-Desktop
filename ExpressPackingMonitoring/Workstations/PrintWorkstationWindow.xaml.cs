@@ -74,6 +74,7 @@ public partial class PrintWorkstationWindow : Window
     private bool _exitRequestedFromTray;
     private bool _deploymentSetupPersisted;
     private bool _testOrderSending;
+    private bool _purposeSwitchPending;
     public ObservableCollection<MobileBackupStatusItem> MobileBackupDeviceStatuses { get; } = [];
     public MobileBackupToastState ToastState { get; } = new();
 
@@ -484,18 +485,18 @@ public partial class PrintWorkstationWindow : Window
                 nextConfig.DeploymentPreset,
                 StringComparison.OrdinalIgnoreCase))
         {
-            if (!TrySaveAndActivateConfig(previousConfig, nextConfig, out string error))
+            return await RunPurposeSwitchAsync(() =>
             {
+                if (TrySaveAndActivateConfig(previousConfig, nextConfig, out string error))
+                    return true;
+
                 AppDialog.ShowMessage(
                     this,
                     $"配置保存失败：{error}",
                     "设置",
                     AppDialogSeverity.Error);
                 return false;
-            }
-
-            WorkstationNetwork.AskRestart(this);
-            return true;
+            });
         }
 
         _host.UpdateConfig(nextConfig);
@@ -649,8 +650,11 @@ public partial class PrintWorkstationWindow : Window
         }
     }
 
-    private void SwitchWorkstation_Click(object sender, RoutedEventArgs e)
+    private async void SwitchWorkstation_Click(object sender, RoutedEventArgs e)
     {
+        if (_purposeSwitchPending)
+            return;
+
         var window = new WorkstationSelectionWindow { Owner = this };
         if (window.ShowDialog() != true || string.IsNullOrWhiteSpace(window.SelectedPreset))
             return;
@@ -664,32 +668,73 @@ public partial class PrintWorkstationWindow : Window
             return;
         }
 
-        if (!WorkstationConfigStore.TryUpdate(
-                config =>
-                {
-                    config.DeploymentPreset = window.SelectedPreset;
-                    config.WorkstationRole = window.SelectedPreset == DeploymentPresets.RecordingHost
-                        ? WorkstationRoles.CameraMonitor
-                        : "";
-                    config.EnableWebServer = DeploymentCapabilities
-                        .ForPreset(window.SelectedPreset)
-                        .CanRunWebServer;
-                },
-                out AppConfig savedConfig,
-                out string error))
+        await RunPurposeSwitchAsync(() =>
         {
-            AppDialog.ShowMessage(
-                this,
-                $"用途保存失败：{error}",
-                "切换用途",
-                AppDialogSeverity.Error);
-            return;
-        }
+            if (!WorkstationConfigStore.TryUpdate(
+                    config =>
+                    {
+                        config.DeploymentPreset = window.SelectedPreset;
+                        config.WorkstationRole = window.SelectedPreset == DeploymentPresets.RecordingHost
+                            ? WorkstationRoles.CameraMonitor
+                            : "";
+                        config.EnableWebServer = DeploymentCapabilities
+                            .ForPreset(window.SelectedPreset)
+                            .CanRunWebServer;
+                    },
+                    out AppConfig savedConfig,
+                    out string error))
+            {
+                AppDialog.ShowMessage(
+                    this,
+                    $"用途保存失败：{error}",
+                    "切换用途",
+                    AppDialogSeverity.Error);
+                return false;
+            }
 
-        _config.DeploymentPreset = savedConfig.DeploymentPreset;
-        _config.WorkstationRole = savedConfig.WorkstationRole;
-        _config.EnableWebServer = savedConfig.EnableWebServer;
-        WorkstationNetwork.AskRestart(this);
+            _config.DeploymentPreset = savedConfig.DeploymentPreset;
+            _config.WorkstationRole = savedConfig.WorkstationRole;
+            _config.EnableWebServer = savedConfig.EnableWebServer;
+            return true;
+        });
+    }
+
+    private async Task<bool> RunPurposeSwitchAsync(Func<bool> savePurpose)
+    {
+        if (_purposeSwitchPending)
+            return false;
+
+        _purposeSwitchPending = true;
+        SwitchPurposeButton.IsEnabled = false;
+        SwitchPurposeButtonText.Text = "正在切换";
+        try
+        {
+            if (_host.HasActiveMobileBackups)
+            {
+                SwitchPurposeButtonText.Text = "等待备份完成";
+                ShowToast("手机录像正在备份，完成后将自动重启", StatusVisual.Warning);
+            }
+
+            await _host.WaitForMobileBackupsAsync(_lifetimeCts.Token);
+            _lifetimeCts.Token.ThrowIfCancellationRequested();
+            if (!savePurpose())
+                return false;
+
+            return WorkstationNetwork.RestartAfterPurposeChange(this);
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+        finally
+        {
+            if (!WorkstationNetwork.IsRestartPending)
+            {
+                _purposeSwitchPending = false;
+                SwitchPurposeButton.IsEnabled = true;
+                SwitchPurposeButtonText.Text = "切换用途";
+            }
+        }
     }
 
     private void CompleteDeploymentSetup()
