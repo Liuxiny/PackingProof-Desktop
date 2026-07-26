@@ -36,6 +36,7 @@ namespace ExpressPackingMonitoring.UI
         private readonly List<double> _scanInputIntervalsMs = new();
         private DateTime _lastScanInputCharAt = DateTime.MinValue;
         private int _lastScanInputLength;
+        private bool _testOrderSending;
 
         private bool IsCapsLockOn() => (GetKeyState(VK_CAPITAL) & 1) != 0;
 
@@ -127,6 +128,7 @@ namespace ExpressPackingMonitoring.UI
             BtnSwitchWorkstation.Click += BtnSwitchWorkstation_Click;
             BtnSwitchWorkstation.PreviewMouseLeftButtonUp += BtnSwitchWorkstation_PreviewMouseLeftButtonUp;
             BtnInstallUserscript.Click += BtnInstallUserscript_Click;
+            BtnSendTestOrder.Click += BtnSendTestOrder_Click;
             _capsCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             _capsCheckTimer.Tick += (s, e) =>
             {
@@ -528,6 +530,38 @@ namespace ExpressPackingMonitoring.UI
         {
             if (DataContext is MainViewModel viewModel)
                 viewModel.OpenUserscriptGuide();
+            e.Handled = true;
+        }
+
+        private async void BtnSendTestOrder_Click(object sender, RoutedEventArgs e)
+        {
+            if (_testOrderSending || DataContext is not MainViewModel viewModel)
+                return;
+
+            _testOrderSending = true;
+            BtnSendTestOrder.IsEnabled = false;
+            SendTestOrderButtonText.Text = "正在发送";
+            try
+            {
+                WorkstationNetwork.TestOrderBroadcastResult result =
+                    await WorkstationNetwork.SendTestOrderToRecordingDevicesAsync(viewModel.MonitorAccessAddress);
+                MessageBoxImage image = result.HasTargets && result.FailureCount == 0
+                    ? MessageBoxImage.Information
+                    : MessageBoxImage.Warning;
+                MessageBox.Show(
+                    this,
+                    WorkstationNetwork.FormatTestOrderBroadcastResult(result),
+                    "发送测试订单",
+                    MessageBoxButton.OK,
+                    image);
+            }
+            finally
+            {
+                _testOrderSending = false;
+                BtnSendTestOrder.IsEnabled = true;
+                SendTestOrderButtonText.Text = "发送测试订单";
+            }
+
             e.Handled = true;
         }
 

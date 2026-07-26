@@ -211,7 +211,9 @@ public sealed class NoCameraWorkstationTests
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
             WorkstationNetwork.TestOrderSendResult order =
-                await WorkstationNetwork.SendTestOrderAsync($"127.0.0.1:{port}");
+                await WorkstationNetwork.SendTestOrderAsync(
+                    $"127.0.0.1:{port}",
+                    TestContext.Current.CancellationToken);
             Assert.True(order.Sent, order.ErrorMessage);
         }
         finally

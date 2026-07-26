@@ -167,6 +167,11 @@
                                 Style="{StaticResource ActionButtonStyle}"
                                 Click="InstallTool_Click"
                                 Content="安装订单联动"/>
+                        <Button x:Name="SendTestOrderButton"
+                                Style="{StaticResource ActionButtonStyle}"
+                                Click="SendTestOrder_Click"
+                                IsEnabled="False"
+                                Content="发送测试订单"/>
                     </WrapPanel>
                 </StackPanel>
             </Border>

@@ -344,6 +344,184 @@ public sealed class RecordingDeviceCatalogTests
         }
     }
 
+    [Fact]
+    public async Task TestOrderBroadcastSendsToEveryUniqueOnlineDevice()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"epm-test-order-broadcast-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        int firstPort = GetFreeTcpPort();
+        int secondPort = GetFreeTcpPort();
+        try
+        {
+            using var firstDatabase = new VideoDatabase(Path.Combine(directory, "first.db"));
+            using var secondDatabase = new VideoDatabase(Path.Combine(directory, "second.db"));
+            using var firstServer = new WebServer(
+                firstDatabase,
+                firstPort,
+                listenerHost: "127.0.0.1",
+                nodeId: "first",
+                nodeName: "电脑",
+                deploymentPreset: DeploymentPresets.RecordingHost);
+            using var secondServer = new WebServer(
+                secondDatabase,
+                secondPort,
+                listenerHost: "127.0.0.1",
+                nodeId: "second",
+                nodeName: "手机1",
+                deploymentPreset: DeploymentPresets.RecordingHost);
+            firstServer.Start();
+            secondServer.Start();
+            var devices = new[]
+            {
+                new RecordingDeviceInfo
+                {
+                    NodeId = "first",
+                    NodeName = "电脑",
+                    Address = $"http://127.0.0.1:{firstPort}",
+                    Online = true
+                },
+                new RecordingDeviceInfo
+                {
+                    NodeId = "first-copy",
+                    NodeName = "重复电脑",
+                    Address = $"http://127.0.0.1:{firstPort}",
+                    Online = true
+                },
+                new RecordingDeviceInfo
+                {
+                    NodeId = "second",
+                    NodeName = "手机1",
+                    Address = $"http://127.0.0.1:{secondPort}",
+                    Online = true
+                },
+                new RecordingDeviceInfo
+                {
+                    NodeId = "offline",
+                    NodeName = "手机2",
+                    Address = $"http://127.0.0.1:{GetFreeTcpPort()}",
+                    Online = false
+                }
+            };
+
+            WorkstationNetwork.TestOrderBroadcastResult result =
+                await WorkstationNetwork.SendTestOrderToRecordingDevicesAsync(
+                    devices,
+                    TestContext.Current.CancellationToken);
+
+            Assert.Equal(2, result.Devices.Count);
+            Assert.Equal(2, result.SuccessCount);
+            Assert.Equal(0, result.FailureCount);
+            Assert.All(result.Devices, device =>
+            {
+                Assert.True(device.Sent, device.ErrorMessage);
+                Assert.True(device.MonitorConfirmed, device.ErrorMessage);
+                Assert.Equal(1, device.TestCount);
+            });
+            string summary = WorkstationNetwork.FormatTestOrderBroadcastResult(result);
+            Assert.Contains("成功 2 台，失败 0 台", summary, StringComparison.Ordinal);
+            Assert.Contains("电脑", summary, StringComparison.Ordinal);
+            Assert.Contains("手机1", summary, StringComparison.Ordinal);
+            Assert.DoesNotContain("手机2", summary, StringComparison.Ordinal);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            try { Directory.Delete(directory, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task TestOrderBroadcastReportsNoOnlineDevices()
+    {
+        WorkstationNetwork.TestOrderBroadcastResult result =
+            await WorkstationNetwork.SendTestOrderToRecordingDevicesAsync(
+                [
+                    new RecordingDeviceInfo
+                    {
+                        NodeId = "offline",
+                        NodeName = "手机1",
+                        Address = "http://192.168.1.31:5280",
+                        Online = false
+                    }
+                ],
+                TestContext.Current.CancellationToken);
+
+        Assert.False(result.HasTargets);
+        Assert.Equal("当前没有在线的录像设备", result.ErrorMessage);
+        Assert.Equal("当前没有在线的录像设备", WorkstationNetwork.FormatTestOrderBroadcastResult(result));
+    }
+
+    [Fact]
+    public async Task TestOrderBroadcastKeepsSuccessfulDeviceWhenAnotherDeviceFails()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"epm-test-order-partial-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        int successPort = GetFreeTcpPort();
+        int failurePort = GetFreeTcpPort();
+        try
+        {
+            using var database = new VideoDatabase(Path.Combine(directory, "videos.db"));
+            using var server = new WebServer(
+                database,
+                successPort,
+                listenerHost: "127.0.0.1",
+                nodeId: "success",
+                nodeName: "电脑",
+                deploymentPreset: DeploymentPresets.RecordingHost);
+            server.Start();
+            using var failureServer = new HttpListener();
+            failureServer.Prefixes.Add($"http://127.0.0.1:{failurePort}/");
+            failureServer.Start();
+            Task failureResponse = Task.Run(async () =>
+            {
+                HttpListenerContext context = await failureServer.GetContextAsync()
+                    .WaitAsync(TestContext.Current.CancellationToken);
+                context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
+                context.Response.Close();
+            }, TestContext.Current.CancellationToken);
+            var devices = new[]
+            {
+                new RecordingDeviceInfo
+                {
+                    NodeId = "success",
+                    NodeName = "电脑",
+                    Address = $"http://127.0.0.1:{successPort}",
+                    Online = true
+                },
+                new RecordingDeviceInfo
+                {
+                    NodeId = "failure",
+                    NodeName = "手机1",
+                    Address = $"http://127.0.0.1:{failurePort}",
+                    Online = true
+                }
+            };
+
+            WorkstationNetwork.TestOrderBroadcastResult result =
+                await WorkstationNetwork.SendTestOrderToRecordingDevicesAsync(
+                    devices,
+                    TestContext.Current.CancellationToken);
+            await failureResponse;
+
+            Assert.Equal(1, result.SuccessCount);
+            Assert.Equal(1, result.FailureCount);
+            Assert.True(result.Devices.Single(device => device.NodeId == "success").Succeeded);
+            WorkstationNetwork.TestOrderDeviceResult failed =
+                result.Devices.Single(device => device.NodeId == "failure");
+            Assert.False(failed.Succeeded);
+            Assert.Equal("HTTP 500", failed.ErrorMessage);
+            string summary = WorkstationNetwork.FormatTestOrderBroadcastResult(result);
+            Assert.Contains("成功 1 台，失败 1 台", summary, StringComparison.Ordinal);
+            Assert.Contains("手机1", summary, StringComparison.Ordinal);
+            Assert.Contains("HTTP 500", summary, StringComparison.Ordinal);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            try { Directory.Delete(directory, recursive: true); } catch { }
+        }
+    }
+
     private static int GetFreeTcpPort()
     {
         var listener = new TcpListener(IPAddress.Loopback, 0);

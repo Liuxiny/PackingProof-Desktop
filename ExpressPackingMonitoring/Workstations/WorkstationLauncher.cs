@@ -249,6 +249,7 @@ public static class WorkstationNetwork
     private sealed record PendingRestart(string ExecutablePath, string WorkingDirectory, string Reason);
 
     private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromMilliseconds(800) };
+    private static readonly HttpClient TestOrderClient = new() { Timeout = TimeSpan.FromSeconds(3) };
     private static readonly JsonSerializerOptions NetworkJsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -259,10 +260,20 @@ public static class WorkstationNetwork
     public static string NormalizeAddress(string input, int defaultPort = 5280)
     {
         input = (input ?? "").Trim();
+        if (Uri.TryCreate(input, UriKind.Absolute, out Uri? uri)
+            && (string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
+        {
+            int port = uri.IsDefaultPort ? defaultPort : uri.Port;
+            return $"{uri.Host}:{port}";
+        }
         if (input.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
             input = input[7..];
         if (input.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
             input = input[8..];
+        int suffixIndex = input.IndexOfAny(['/', '?', '#']);
+        if (suffixIndex >= 0)
+            input = input[..suffixIndex];
         input = input.TrimEnd('/');
         if (string.IsNullOrWhiteSpace(input)) return "";
         return input.Contains(':') ? input : $"{input}:{defaultPort}";
@@ -378,10 +389,34 @@ public static class WorkstationNetwork
     {
         public bool Sent { get; init; }
         public bool MonitorConfirmed { get; init; }
+        public int TestCount { get; init; }
         public string ErrorMessage { get; init; } = "";
     }
 
-    public static async Task<TestOrderSendResult> SendTestOrderAsync(string address)
+    public sealed class TestOrderDeviceResult
+    {
+        public string NodeId { get; init; } = "";
+        public string NodeName { get; init; } = "";
+        public string Address { get; init; } = "";
+        public bool Sent { get; init; }
+        public bool MonitorConfirmed { get; init; }
+        public int TestCount { get; init; }
+        public string ErrorMessage { get; init; } = "";
+        public bool Succeeded => Sent && MonitorConfirmed;
+    }
+
+    public sealed class TestOrderBroadcastResult
+    {
+        public IReadOnlyList<TestOrderDeviceResult> Devices { get; init; } = [];
+        public string ErrorMessage { get; init; } = "";
+        public int SuccessCount => Devices.Count(device => device.Succeeded);
+        public int FailureCount => Devices.Count - SuccessCount;
+        public bool HasTargets => Devices.Count > 0;
+    }
+
+    public static async Task<TestOrderSendResult> SendTestOrderAsync(
+        string address,
+        CancellationToken token = default)
     {
         address = NormalizeAddress(address);
         if (string.IsNullOrWhiteSpace(address))
@@ -403,30 +438,139 @@ public static class WorkstationNetwork
         try
         {
             using var content = new StringContent(JsonSerializer.Serialize(order), Encoding.UTF8, "application/json");
-            using var response = await Client.PostAsync($"{ToUrl(address)}/api/orderinfo", content);
+            using var response = await TestOrderClient.PostAsync(
+                $"{ToUrl(address)}/api/orderinfo",
+                content,
+                token);
             if (!response.IsSuccessStatusCode)
                 return new TestOrderSendResult { ErrorMessage = $"HTTP {(int)response.StatusCode}" };
 
-            string body = await response.Content.ReadAsStringAsync();
-            bool confirmed = false;
+            string body = await response.Content.ReadAsStringAsync(token);
+            int testCount;
             try
             {
                 using var doc = JsonDocument.Parse(body);
-                confirmed = doc.RootElement.TryGetProperty("testCount", out var testCount)
-                    && testCount.TryGetInt32(out int value)
-                    && value > 0;
+                testCount = doc.RootElement.TryGetProperty("testCount", out JsonElement countElement)
+                    && countElement.TryGetInt32(out int value)
+                    ? value
+                    : 0;
             }
             catch
             {
-                confirmed = false;
+                return new TestOrderSendResult
+                {
+                    Sent = true,
+                    ErrorMessage = "设备返回无效响应"
+                };
             }
 
-            return new TestOrderSendResult { Sent = true, MonitorConfirmed = confirmed };
+            return new TestOrderSendResult
+            {
+                Sent = true,
+                MonitorConfirmed = testCount > 0,
+                TestCount = testCount,
+                ErrorMessage = testCount > 0 ? "" : "设备未确认收到测试订单"
+            };
+        }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested)
+        {
+            return new TestOrderSendResult { ErrorMessage = "请求超时" };
+        }
+        catch (HttpRequestException)
+        {
+            return new TestOrderSendResult { ErrorMessage = "无法连接设备" };
         }
         catch (Exception ex)
         {
             return new TestOrderSendResult { ErrorMessage = ex.Message };
         }
+    }
+
+    public static async Task<TestOrderBroadcastResult> SendTestOrderToRecordingDevicesAsync(
+        string hostAddress,
+        CancellationToken token = default)
+    {
+        PackingProofNodeInfo? host = await GetNodeInfoAsync(hostAddress, token);
+        if (host == null)
+        {
+            return new TestOrderBroadcastResult
+            {
+                ErrorMessage = "PackingProof 主机离线或无法访问"
+            };
+        }
+
+        IReadOnlyList<RecordingDeviceInfo> devices = await GetRecordingDevicesAsync(
+            host.Address,
+            includeKnown: false,
+            token);
+        return await SendTestOrderToRecordingDevicesAsync(devices, token);
+    }
+
+    public static async Task<TestOrderBroadcastResult> SendTestOrderToRecordingDevicesAsync(
+        IEnumerable<RecordingDeviceInfo>? recordingDevices,
+        CancellationToken token = default)
+    {
+        RecordingDeviceInfo[] devices = (recordingDevices ?? [])
+            .Where(device => device != null && device.Online)
+            .Select(device => new
+            {
+                Device = device,
+                Address = NormalizeAddress(device.Address)
+            })
+            .Where(item => item.Address.Length > 0)
+            .GroupBy(item => item.Address, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First().Device)
+            .ToArray();
+        if (devices.Length == 0)
+        {
+            return new TestOrderBroadcastResult
+            {
+                ErrorMessage = "当前没有在线的录像设备"
+            };
+        }
+
+        Task<TestOrderDeviceResult>[] tasks = devices
+            .Select(async device =>
+            {
+                TestOrderSendResult result = await SendTestOrderAsync(device.Address, token);
+                return new TestOrderDeviceResult
+                {
+                    NodeId = device.NodeId,
+                    NodeName = device.NodeName,
+                    Address = device.Address,
+                    Sent = result.Sent,
+                    MonitorConfirmed = result.MonitorConfirmed,
+                    TestCount = result.TestCount,
+                    ErrorMessage = result.ErrorMessage
+                };
+            })
+            .ToArray();
+        TestOrderDeviceResult[] results = await Task.WhenAll(tasks);
+        return new TestOrderBroadcastResult { Devices = results };
+    }
+
+    public static string FormatTestOrderBroadcastResult(TestOrderBroadcastResult result)
+    {
+        if (!result.HasTargets)
+            return string.IsNullOrWhiteSpace(result.ErrorMessage)
+                ? "当前没有在线的录像设备"
+                : result.ErrorMessage;
+
+        var lines = new List<string>
+        {
+            $"成功 {result.SuccessCount} 台，失败 {result.FailureCount} 台"
+        };
+        lines.AddRange(result.Devices.Select(device =>
+        {
+            string name = string.IsNullOrWhiteSpace(device.NodeName)
+                ? device.Address
+                : device.NodeName;
+            string status = device.Succeeded
+                ? "成功"
+                : $"失败：{(string.IsNullOrWhiteSpace(device.ErrorMessage) ? "未确认收到测试订单" : device.ErrorMessage)}";
+            return $"{name}（{NormalizeAddress(device.Address)}）：{status}";
+        }));
+        return string.Join(Environment.NewLine, lines);
     }
 
     public static async Task<string?> FindMonitorAsync(int port, IProgress<string>? progress = null, CancellationToken token = default)

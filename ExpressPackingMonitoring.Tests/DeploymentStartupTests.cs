@@ -92,6 +92,17 @@ public sealed class DeploymentStartupTests
     }
 
     [Fact]
+    public void WorkstationAddressNormalizationRemovesPlaybackKeyAndPath()
+    {
+        Assert.Equal(
+            "192.168.1.20:5280",
+            WorkstationNetwork.NormalizeAddress("http://192.168.1.20:5280/?key=secret"));
+        Assert.Equal(
+            "192.168.1.20:5280",
+            WorkstationNetwork.NormalizeAddress("192.168.1.20:5280/kuaidizs-install-guide"));
+    }
+
+    [Fact]
     public void ViewerClientExposesPurposeSwitchAndUsesSharedRestartFlow()
     {
         string viewerXaml = ReadRepositoryFile(
@@ -267,6 +278,33 @@ public sealed class DeploymentStartupTests
         Assert.Contains("Text=\"{Binding UserscriptButtonText}\"", xaml, StringComparison.Ordinal);
         Assert.Contains("UserscriptSetupStatusText", source, StringComparison.Ordinal);
         Assert.Contains("OrderIntegrationStatusText", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EveryDeploymentWindowExposesTestOrderAndRecordingHostUsesTwoRows()
+    {
+        string recordingXaml = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "UI",
+            "MainWindow.xaml");
+        string viewerXaml = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "Workstations",
+            "ViewerClientWindow.xaml");
+        string mobileBackupXaml = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "Workstations",
+            "PrintWorkstationWindow.xaml");
+
+        Assert.Contains("x:Name=\"BtnSendTestOrder\"", recordingXaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"SendTestOrderButton\"", viewerXaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"SendTestOrderButton\"", mobileBackupXaml, StringComparison.Ordinal);
+        Assert.Equal(1, recordingXaml.Split("Text=\"发送测试订单\"", StringSplitOptions.None).Length - 1);
+        Assert.Equal(1, viewerXaml.Split("Content=\"发送测试订单\"", StringSplitOptions.None).Length - 1);
+        Assert.Equal(1, mobileBackupXaml.Split("Content=\"发送测试订单\"", StringSplitOptions.None).Length - 1);
+        Assert.Contains("<Grid.RowDefinitions>", recordingXaml, StringComparison.Ordinal);
+        Assert.Matches("x:Name=\"BtnInstallUserscript\"\\s+Grid.Row=\"2\"", recordingXaml);
+        Assert.Matches("x:Name=\"BtnSendTestOrder\"\\s+Grid.Row=\"2\"", recordingXaml);
     }
 
     [Fact]

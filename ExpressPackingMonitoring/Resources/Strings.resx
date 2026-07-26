@@ -597,4 +597,6 @@
   <data name="脚本会读取最近使用过的录像设备，并把订单同时发送给所有设备" xml:space="preserve"><value>The script reads recently used recording devices and sends orders to all of them</value></data>
   <data name="尚未配置订单联动" xml:space="preserve"><value>Order integration is not configured</value></data>
   <data name="安装订单联动" xml:space="preserve"><value>Install order integration</value></data>
+  <data name="发送测试订单" xml:space="preserve"><value>Send test order</value></data>
+  <data name="向当前在线的全部录像设备发送测试订单" xml:space="preserve"><value>Send a test order to all recording devices currently online</value></data>
 </root>

@@ -16,6 +16,7 @@ public partial class ViewerClientWindow : Window
     private PackingProofNodeInfo? _boundHost;
     private IReadOnlyList<RecordingDeviceInfo> _knownRecordingDevices = [];
     private bool _deploymentSetupPersisted;
+    private bool _testOrderSending;
 
     public ViewerClientWindow(AppConfig config)
     {
@@ -75,6 +76,7 @@ public partial class ViewerClientWindow : Window
         RecorderCountText.Text = devices.Count.ToString();
         OpenWebButton.IsEnabled = true;
         UserscriptButton.IsEnabled = _knownRecordingDevices.Count > 0;
+        SendTestOrderButton.IsEnabled = true;
         RefreshUserscriptStatus();
     }
 
@@ -91,6 +93,7 @@ public partial class ViewerClientWindow : Window
         RecorderCountText.Text = "0";
         OpenWebButton.IsEnabled = false;
         UserscriptButton.IsEnabled = false;
+        SendTestOrderButton.IsEnabled = false;
         UserscriptStatusText.Text = "主机离线，暂时无法检查订单联动设备";
     }
 
@@ -187,6 +190,36 @@ public partial class ViewerClientWindow : Window
 
         UserscriptTargetState.MarkGuideOpened(_config, _knownRecordingDevices);
         RefreshUserscriptStatus();
+    }
+
+    private async void SendTestOrder_Click(object sender, RoutedEventArgs e)
+    {
+        if (_testOrderSending || _boundHost == null)
+            return;
+
+        _testOrderSending = true;
+        SendTestOrderButton.IsEnabled = false;
+        SendTestOrderButton.Content = "正在发送";
+        try
+        {
+            WorkstationNetwork.TestOrderBroadcastResult result =
+                await WorkstationNetwork.SendTestOrderToRecordingDevicesAsync(_boundHost.Address);
+            MessageBoxImage image = result.HasTargets && result.FailureCount == 0
+                ? MessageBoxImage.Information
+                : MessageBoxImage.Warning;
+            MessageBox.Show(
+                this,
+                WorkstationNetwork.FormatTestOrderBroadcastResult(result),
+                "发送测试订单",
+                MessageBoxButton.OK,
+                image);
+        }
+        finally
+        {
+            _testOrderSending = false;
+            SendTestOrderButton.IsEnabled = _boundHost != null;
+            SendTestOrderButton.Content = "发送测试订单";
+        }
     }
 
     private void RefreshUserscriptStatus()

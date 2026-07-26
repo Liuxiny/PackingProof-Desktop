@@ -712,9 +712,12 @@
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="8"/>
                                     <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="8"/>
-                                    <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="8"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
                                 <Button x:Name="BtnSwitchWorkstation" Grid.Column="0" Height="32" Padding="9,0" Style="{StaticResource SecondaryButtonStyle}" ToolTip="切换用途" Cursor="Hand" Focusable="False">
                                     <StackPanel Orientation="Horizontal" IsHitTestVisible="False">
                                         <Path Data="{StaticResource FluentArrowSwapIcon}" Width="14" Height="14" Stretch="Uniform" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
@@ -734,7 +737,8 @@
                                     </StackPanel>
                                 </Button>
                                 <Button x:Name="BtnInstallUserscript"
-                                        Grid.Column="4"
+                                        Grid.Row="2"
+                                        Grid.Column="0"
                                         Height="32"
                                         Padding="9,0"
                                         Style="{StaticResource SecondaryButtonStyle}"
@@ -743,6 +747,19 @@
                                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" IsHitTestVisible="False">
                                         <Path Data="{StaticResource FluentLinkIcon}" Width="14" Height="14" Stretch="Uniform" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
                                         <TextBlock Text="{Binding UserscriptButtonText}" Margin="5,0,0,0" FontSize="12" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button x:Name="BtnSendTestOrder"
+                                        Grid.Row="2"
+                                        Grid.Column="2"
+                                        Height="32"
+                                        Padding="9,0"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        ToolTip="向当前在线的全部录像设备发送测试订单"
+                                        Focusable="False">
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" IsHitTestVisible="False">
+                                        <Path Data="{StaticResource FluentPlayIcon}" Width="14" Height="14" Stretch="Uniform" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                                        <TextBlock x:Name="SendTestOrderButtonText" Text="发送测试订单" Margin="5,0,0,0" FontSize="12" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
                             </Grid>

@@ -597,4 +597,6 @@
   <data name="脚本会读取最近使用过的录像设备，并把订单同时发送给所有设备" xml:space="preserve"><value>脚本会读取最近使用过的录像设备，并把订单同时发送给所有设备</value></data>
   <data name="尚未配置订单联动" xml:space="preserve"><value>尚未配置订单联动</value></data>
   <data name="安装订单联动" xml:space="preserve"><value>安装订单联动</value></data>
+  <data name="发送测试订单" xml:space="preserve"><value>发送测试订单</value></data>
+  <data name="向当前在线的全部录像设备发送测试订单" xml:space="preserve"><value>向当前在线的全部录像设备发送测试订单</value></data>
 </root>

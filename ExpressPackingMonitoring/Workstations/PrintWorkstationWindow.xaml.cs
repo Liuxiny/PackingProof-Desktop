@@ -16,6 +16,7 @@ public partial class PrintWorkstationWindow : Window
     {
         Neutral,
         Success,
+        Warning,
         Error
     }
 
@@ -31,6 +32,7 @@ public partial class PrintWorkstationWindow : Window
     private bool _loaded;
     private bool _exitRequestedFromTray;
     private bool _deploymentSetupPersisted;
+    private bool _testOrderSending;
 
     public PrintWorkstationWindow(
         AppConfig config,
@@ -141,6 +143,7 @@ public partial class PrintWorkstationWindow : Window
 
         ConnectPhoneButton.IsEnabled = _host.IsLanAvailable;
         CopyLanAddressButton.IsEnabled = _host.IsLanAvailable;
+        SendTestOrderButton.IsEnabled = _host.IsLanAvailable && !_testOrderSending;
         RepairLanButton.Visibility = _host.IsLanAvailable ? Visibility.Collapsed : Visibility.Visible;
     }
 
@@ -152,6 +155,7 @@ public partial class PrintWorkstationWindow : Window
         SettingsButton.IsEnabled = true;
         ConnectPhoneButton.IsEnabled = enabled && _host.IsLanAvailable;
         CopyLanAddressButton.IsEnabled = enabled && _host.IsLanAvailable;
+        SendTestOrderButton.IsEnabled = enabled && _host.IsLanAvailable && !_testOrderSending;
     }
 
     private void SetStatus(string title, string hint, StatusVisual visual = StatusVisual.Neutral)
@@ -162,12 +166,14 @@ public partial class PrintWorkstationWindow : Window
         string iconKey = visual switch
         {
             StatusVisual.Success => "FluentCheckIcon",
+            StatusVisual.Warning => "FluentWarningIcon",
             StatusVisual.Error => "FluentDismissIcon",
             _ => "FluentHourglassIcon"
         };
         string brushKey = visual switch
         {
             StatusVisual.Success => "AccentGreen",
+            StatusVisual.Warning => "AccentOrange",
             StatusVisual.Error => "AccentRed",
             _ => "AccentBlue"
         };
@@ -314,8 +320,6 @@ public partial class PrintWorkstationWindow : Window
             SetStatus("局域网修复失败", _host.ErrorMessage, StatusVisual.Error);
     }
 
-    private string LocalOrderAddress => $"127.0.0.1:{_config.WebServerPort}";
-
     private async Task<bool> ApplySettingsAsync(AppConfig nextConfig)
     {
         AppConfig previousConfig = _config;
@@ -450,20 +454,42 @@ public partial class PrintWorkstationWindow : Window
         SetStatus("已打开订单联动安装向导", "脚本会写入最近使用过的全部录像设备", StatusVisual.Success);
     }
 
-    private async void TestReceive_Click(object sender, RoutedEventArgs e)
+    private async void SendTestOrder_Click(object sender, RoutedEventArgs e)
     {
-        SetStatus("正在测试本机订单接收", LocalOrderAddress);
-        WorkstationNetwork.TestOrderSendResult result =
-            await WorkstationNetwork.SendTestOrderAsync(LocalOrderAddress);
-        if (result.Sent)
+        if (_testOrderSending)
+            return;
+
+        _testOrderSending = true;
+        SendTestOrderButton.IsEnabled = false;
+        SendTestOrderButton.Content = "正在发送";
+        SetStatus("正在发送测试订单", "测试订单将同时发送给当前在线的全部录像设备");
+        try
         {
-            SetStatus("本机已收到测试订单", "测试订单已写入录像数据库，可供手机录像关联", StatusVisual.Success);
+            WorkstationNetwork.TestOrderBroadcastResult result =
+                await WorkstationNetwork.SendTestOrderToRecordingDevicesAsync(_host.LanAccessUrl);
+            StatusVisual visual = !result.HasTargets
+                ? StatusVisual.Error
+                : result.FailureCount == 0
+                    ? StatusVisual.Success
+                    : StatusVisual.Warning;
+            SetStatus(
+                result.HasTargets
+                    ? $"测试完成：成功 {result.SuccessCount} 台，失败 {result.FailureCount} 台"
+                    : "测试订单发送失败",
+                WorkstationNetwork.FormatTestOrderBroadcastResult(result),
+                visual);
+            MessageBox.Show(
+                this,
+                WorkstationNetwork.FormatTestOrderBroadcastResult(result),
+                "发送测试订单",
+                MessageBoxButton.OK,
+                visual == StatusVisual.Success ? MessageBoxImage.Information : MessageBoxImage.Warning);
         }
-        else
+        finally
         {
-            SetStatus("测试接收失败",
-                string.IsNullOrWhiteSpace(result.ErrorMessage) ? "请确认本机服务已正常启动" : result.ErrorMessage,
-                StatusVisual.Error);
+            _testOrderSending = false;
+            SendTestOrderButton.IsEnabled = _host.IsLanAvailable;
+            SendTestOrderButton.Content = "发送测试订单";
         }
     }
 
