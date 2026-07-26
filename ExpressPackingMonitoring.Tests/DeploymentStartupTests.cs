@@ -36,6 +36,19 @@ public sealed class DeploymentStartupTests
         Assert.DoesNotContain("videos", url, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void MobileConnectionSecurityNoticeUsesWarningTextWithoutCard()
+    {
+        string xaml = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "UI",
+            "MobileConnectionWindow.xaml");
+
+        Assert.Contains("<TextBlock x:Name=\"SecurityNotice\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Foreground=\"{DynamicResource AccentOrange}\"", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("<Border x:Name=\"SecurityNotice\"", xaml, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("RecordingHost", DeploymentPresets.RecordingHost)]
     [InlineData("CameraMonitor", DeploymentPresets.RecordingHost)]

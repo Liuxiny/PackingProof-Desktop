@@ -53,19 +53,14 @@
                          HorizontalScrollBarVisibility="Auto"
                          VerticalContentAlignment="Center"
                          Padding="10,8"/>
-                <Border x:Name="SecurityNotice"
-                        Margin="0,12,0,0"
-                        Padding="12,9"
-                        CornerRadius="7"
-                        Background="#18F59E0B"
-                        BorderBrush="{DynamicResource AccentOrange}"
-                        BorderThickness="1"
-                        Visibility="Collapsed">
-                    <TextBlock Text="此网址包含录像访问密钥，请不要发送给无关人员"
-                               FontSize="12"
-                               TextWrapping="Wrap"
-                               Foreground="{DynamicResource TextSecondary}"/>
-                </Border>
+                <TextBlock x:Name="SecurityNotice"
+                           Text="此网址包含录像访问密钥，请不要发送给无关人员"
+                           Margin="0,10,0,0"
+                           FontSize="12"
+                           FontWeight="SemiBold"
+                           TextWrapping="Wrap"
+                           Foreground="{DynamicResource AccentOrange}"
+                           Visibility="Collapsed"/>
             </StackPanel>
 
             <Border x:Name="UnavailablePanel"
