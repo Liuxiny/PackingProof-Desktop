@@ -2495,8 +2495,7 @@ namespace ExpressPackingMonitoring.ViewModels
                 return;
 
             MonitorAccessAddress = verifiedAddress;
-            int recorderCount = _webServer.GetRecordingDevices(verifiedAddress).Count;
-            WorkstationPrintStatusText = $"{Config.NodeName} · {verifiedAddress} · 录像设备 {recorderCount}";
+            WorkstationPrintStatusText = $"{Config.NodeName} · {verifiedAddress}";
             WorkstationStatusToolTip = Config.RequireWebAccessKey
                 ? "访问保护已开启。请点击手机/电脑连接查看二维码或复制完整访问链接，再发送到需要查看录像的设备。"
                 : $"其他电脑在浏览器输入 http://{MonitorAccessAddress}，即可搜索、下载和播放视频。若打不开，请确认两台电脑在同一局域网，并检查防火墙。";

@@ -228,7 +228,11 @@ public sealed class DeploymentStartupTests
 
         Assert.Contains("x:Name=\"BtnInstallUserscript\"", xaml, StringComparison.Ordinal);
         Assert.Contains("Config.NodeName", source, StringComparison.Ordinal);
-        Assert.Contains("_webServer.GetRecordingDevices(verifiedAddress)", source, StringComparison.Ordinal);
+        Assert.Contains(
+            "WorkstationPrintStatusText = $\"{Config.NodeName} · {verifiedAddress}\";",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("· 录像设备 {recorderCount}", source, StringComparison.Ordinal);
         Assert.Contains("public void OpenUserscriptGuide()", source, StringComparison.Ordinal);
         Assert.Contains("/kuaidizs-install-guide", source, StringComparison.Ordinal);
         Assert.Contains("ItemsSource=\"{Binding MobileBackupDeviceStatuses}\"", xaml, StringComparison.Ordinal);
