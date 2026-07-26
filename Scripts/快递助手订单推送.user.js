@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         订单备注播报插件
 // @namespace    https://github.com/ExpressPackingMonitoring
-// @version      2.10
+// @version      2.11
 // @description  从快递助手批量打印页面提取订单备注和打印后退款状态，同时发送到已配对的电脑和手机
 // @author       ExpressPackingMonitoring
 // @icon         https://raw.githubusercontent.com/m-RNA/ExpressPackingMonitoring/main/ExpressPackingMonitoring/app.ico
@@ -32,18 +32,7 @@
         try { return new URL(PACKING_PROOF_RECORDERS[0]?.url || '').hostname; } catch { return ''; }
     })();
     const DEFAULT_ADDRESS = DEFAULT_HOST ? `${DEFAULT_HOST}:${DEFAULT_PORT}` : '';
-    const INSTALL_MONITOR_ADDRESSES = [];
-    const INSTALL_PRIMARY_MONITOR_ADDRESS = '';
-    const MONITOR_ADDRESSES_KEY = 'monitor_addresses';
-    const INSTALLED_MONITOR_ADDRESSES_KEY = 'installed_monitor_addresses';
-    const INSTALLED_PRIMARY_MONITOR_ADDRESS_KEY = 'installed_primary_monitor_address';
-    const MAX_MONITOR_ADDRESSES = 8;
-    const DISCOVERY_DONE_KEY = 'monitor_auto_discovery_done';
-    const DISCOVERY_LAST_ATTEMPT_KEY = 'monitor_auto_discovery_last_attempt';
-    const DISCOVERY_LOCK_KEY = 'monitor_auto_discovery_lock';
-    const DISCOVERY_LOCK_MS = 30000;
-    const DISCOVERY_RETRY_DELAY_MS = 60 * 1000;
-    const DISCOVERY_TIMEOUT = 700;
+    const HOST_CHECK_TIMEOUT = 1200;
     const ORDER_LOOKUP_RECONNECT_MS = 250;
     const PRINTED_REFUND_QUERY_TIMEOUT_MS = 6000;
     const PRINTED_REFUND_STABLE_MS = 500;
@@ -61,7 +50,7 @@
     const CONNECTION_HEARTBEAT_INTERVAL_MS = 15000;
     const IS_REFUND_WORKER = new URL(location.href).searchParams.get(REFUND_WORKER_PARAM) === '1';
     const REFUND_WORKER_TOKEN = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const CHANGELOG = 'v2.9：订单同时推送到已配对的电脑和手机';
+    const CHANGELOG = 'v2.11：固定群发到安装时写入的全部录像设备';
     const DEBUG_LOG = false;
 
     let lastUserActivityAt = Date.now();
@@ -230,19 +219,16 @@
                 if (heartbeat.time > 0 && Date.now() - heartbeat.time < REFUND_WORKER_STALE_MS) return;
                 if (await hasOpenRefundWorkerTab()) return;
 
-                const address = getMonitorAddress();
-                monitorReachable = await canConnectMonitor(address.host, address.port);
+                monitorReachable = await canConnectHost();
             }
             await ensureRefundWorker(false, monitorReachable);
         })().finally(() => { refundWorkerMaintenancePromise = null; });
         return refundWorkerMaintenancePromise;
     }
 
-    function getApiUrl() { return `${getBaseUrl(getMonitorAddressText())}/api/orderinfo`; }
-    function getOrderLookupPendingUrl() { return `${getBaseUrl(getMonitorAddressText())}/api/order-lookup/pending`; }
-    function getOrderLookupResultUrl() { return `${getBaseUrl(getMonitorAddressText())}/api/order-lookup/result`; }
-    function getConnectionHeartbeatUrl() { return `${getBaseUrl(getMonitorAddressText())}/api/connections/heartbeat`; }
-    function getStorageUrl(host, port) { return `${getBaseUrl(host, port)}/api/storage`; }
+    function getOrderLookupPendingUrl() { return `${getHostBaseUrl()}/api/order-lookup/pending`; }
+    function getOrderLookupResultUrl() { return `${getHostBaseUrl()}/api/order-lookup/result`; }
+    function getConnectionHeartbeatUrl() { return `${getHostBaseUrl()}/api/connections/heartbeat`; }
     function getBaseUrl(host, port) {
         const address = normalizeAddress(host, port);
         return `http://${address.host}:${address.port}`;
@@ -276,34 +262,6 @@
         const normalized = normalizeAddress(address.host, address.port);
         return normalized.host ? `${normalized.host}:${normalized.port}` : '';
     }
-    function normalizeAddressList(values) {
-        const result = [];
-        for (const value of Array.isArray(values) ? values : []) {
-            const address = normalizeAddress(value, DEFAULT_PORT);
-            const text = formatAddress(address);
-            if (!text) continue;
-            if (!result.includes(text)) result.push(text);
-            if (result.length >= MAX_MONITOR_ADDRESSES) break;
-        }
-        return result;
-    }
-    function getPairedMonitorAddresses() {
-        const stored = GM_getValue(MONITOR_ADDRESSES_KEY, []);
-        const candidates = Array.isArray(stored) ? stored.slice() : [];
-        const current = GM_getValue('monitor_address', '');
-        if (current) candidates.push(current);
-
-        const legacyHost = GM_getValue('monitor_host', '');
-        const legacyPort = GM_getValue('monitor_port', '');
-        if (legacyHost || legacyPort) candidates.push(formatAddress(normalizeAddress(legacyHost || DEFAULT_HOST, legacyPort || DEFAULT_PORT)));
-        if (PACKING_PROOF_HOST?.Address || PACKING_PROOF_HOST?.address)
-            candidates.push(PACKING_PROOF_HOST.Address || PACKING_PROOF_HOST.address);
-        candidates.push(...PACKING_PROOF_RECORDERS.map(device => device?.url || ''));
-        candidates.push(...INSTALL_MONITOR_ADDRESSES);
-        if (candidates.length === 0 && DEFAULT_ADDRESS) candidates.push(DEFAULT_ADDRESS);
-        return normalizeAddressList(candidates);
-    }
-
     function getRecorderDevices() {
         const result = [];
         const endpoints = new Set();
@@ -319,67 +277,17 @@
                 url: `http://${text}`
             });
         }
-        if (result.length > 0) return result;
-        return getPairedMonitorAddresses().map(address => ({
-            nodeId: address,
-            name: address,
-            type: 'legacy',
-            url: `http://${address}`
-        }));
-    }
-    function getMonitorAddressText() {
-        const storedAddress = GM_getValue('monitor_address', '');
-        if (storedAddress) return formatAddress(normalizeAddress(storedAddress, DEFAULT_PORT));
-        return getPairedMonitorAddresses()[0] || DEFAULT_ADDRESS;
-    }
-    function getMonitorAddress() {
-        return normalizeAddress(getMonitorAddressText(), DEFAULT_PORT);
-    }
-    function setActiveMonitorAddress(host, port) {
-        const address = normalizeAddress(host, port);
-        const text = formatAddress(address);
-        GM_setValue('monitor_address', text);
-        GM_setValue('monitor_host', address.host);
-        GM_setValue('monitor_port', address.port);
-        GM_setValue(DISCOVERY_DONE_KEY, true);
-        return address;
+        return result;
     }
 
-    function saveMonitorAddress(host, port) {
-        const address = normalizeAddress(host, port);
-        const text = formatAddress(address);
-        GM_setValue(MONITOR_ADDRESSES_KEY, normalizeAddressList([text, ...getPairedMonitorAddresses()]));
-        return setActiveMonitorAddress(address.host, address.port);
+    function getHostAddress() {
+        const value = PACKING_PROOF_HOST?.address || PACKING_PROOF_HOST?.Address || '';
+        return normalizeAddress(value, DEFAULT_PORT);
     }
 
-    function applyInstalledMonitorAddresses() {
-        const installed = normalizeAddressList(INSTALL_MONITOR_ADDRESSES);
-        if (installed.length === 0) return;
-
-        const previousValue = GM_getValue(INSTALLED_MONITOR_ADDRESSES_KEY, []);
-        const previous = normalizeAddressList(Array.isArray(previousValue) ? previousValue : []);
-        const installedPrimary = INSTALL_PRIMARY_MONITOR_ADDRESS
-            ? formatAddress(normalizeAddress(INSTALL_PRIMARY_MONITOR_ADDRESS, DEFAULT_PORT))
-            : installed[0];
-        const previousPrimary = String(GM_getValue(INSTALLED_PRIMARY_MONITOR_ADDRESS_KEY, '') || '');
-        const legacyInstalled = GM_getValue('installed_monitor_address', '');
-        if (legacyInstalled) previous.push(formatAddress(normalizeAddress(legacyInstalled, DEFAULT_PORT)));
-        if (JSON.stringify(previous) === JSON.stringify(installed) && previousPrimary === installedPrimary) return;
-
-        const retained = getPairedMonitorAddresses().filter(address => !previous.includes(address));
-        const addresses = normalizeAddressList([...installed, ...retained]);
-        GM_setValue(MONITOR_ADDRESSES_KEY, addresses);
-        GM_setValue(INSTALLED_MONITOR_ADDRESSES_KEY, installed);
-        GM_setValue(INSTALLED_PRIMARY_MONITOR_ADDRESS_KEY, installedPrimary || '');
-        GM_setValue('installed_monitor_address', '');
-
-        if (installedPrimary && addresses.includes(installedPrimary)) {
-            const active = normalizeAddress(installedPrimary, DEFAULT_PORT);
-            setActiveMonitorAddress(active.host, active.port);
-        } else if (!addresses.includes(getMonitorAddressText())) {
-            const active = normalizeAddress(addresses[0], DEFAULT_PORT);
-            setActiveMonitorAddress(active.host, active.port);
-        }
+    function getHostBaseUrl() {
+        const address = getHostAddress();
+        return address.host ? getBaseUrl(address.host, address.port) : '';
     }
 
     function parseJsonResponse(text) {
@@ -402,145 +310,32 @@
         });
     }
 
-    async function canConnectMonitor(host, port) {
-        const result = await gmGet(getStorageUrl(host, port), DISCOVERY_TIMEOUT);
-        return result.ok && result.response?.service !== 'packingproof-mobile';
+    async function canConnectHost() {
+        const baseUrl = getHostBaseUrl();
+        if (!baseUrl) return false;
+        const result = await gmGet(`${baseUrl}/api/node-info`, HOST_CHECK_TIMEOUT);
+        return result.ok &&
+            result.response?.protocol === 'packingproof' &&
+            Number(result.response?.protocolVersion) === 1;
     }
-
-    async function findMonitorAddress(showProgress) {
-        GM_setValue(DISCOVERY_LAST_ATTEMPT_KEY, Date.now());
-        const saved = getMonitorAddress();
-        const directCandidates = normalizeAddressList([
-            formatAddress(saved),
-            ...getPairedMonitorAddresses(),
-            ...INSTALL_MONITOR_ADDRESSES,
-            PACKING_PROOF_HOST?.Address || PACKING_PROOF_HOST?.address || ''
-        ]).map(value => normalizeAddress(value, DEFAULT_PORT));
-
-        for (const address of directCandidates) {
-            if (showProgress) showNotification(`正在连接 ${formatAddress(address)}`);
-            if (await canConnectMonitor(address.host, address.port)) {
-                const found = saveMonitorAddress(address.host, address.port);
-                return `${found.host}:${found.port}`;
-            }
-        }
-
-        GM_setValue(DISCOVERY_DONE_KEY, true);
-        return '';
-    }
-
-    let monitorDiscoveryPromise = null;
-    function shouldAttemptMonitorDiscovery(force, discoveryDone, lastAttempt, now) {
-        if (force || !discoveryDone) return true;
-        const elapsed = Number(now ?? Date.now()) - Number(lastAttempt || 0);
-        return elapsed >= DISCOVERY_RETRY_DELAY_MS;
-    }
-
-    async function ensureMonitorAddress(auto) {
-        const shouldDiscover = shouldAttemptMonitorDiscovery(
-            auto,
-            GM_getValue(DISCOVERY_DONE_KEY, false),
-            GM_getValue(DISCOVERY_LAST_ATTEMPT_KEY, 0),
-            Date.now());
-        if (!shouldDiscover) return true;
-
-        if (monitorDiscoveryPromise) return await monitorDiscoveryPromise;
-
-        const now = Date.now();
-        const existingLock = GM_getValue(DISCOVERY_LOCK_KEY, null);
-        if (existingLock && Number(existingLock.until || 0) > now) return false;
-        const lockToken = `${now}-${Math.random().toString(36).slice(2)}`;
-        GM_setValue(DISCOVERY_LOCK_KEY, { token: lockToken, until: now + DISCOVERY_LOCK_MS });
-        monitorDiscoveryPromise = findMonitorAddress(false)
-            .finally(() => {
-                monitorDiscoveryPromise = null;
-                const currentLock = GM_getValue(DISCOVERY_LOCK_KEY, null);
-                if (currentLock?.token === lockToken)
-                    GM_setValue(DISCOVERY_LOCK_KEY, null);
-            });
-        const found = await monitorDiscoveryPromise;
-        if (found) {
-            showNotification(`已连接上位机：${found}`);
-            return true;
-        }
-        return false;
-    }
-
-    applyInstalledMonitorAddresses();
 
     // 专用工作页不显示业务菜单，避免用户误在工作页执行普通推送。
     if (!IS_REFUND_WORKER) {
-        GM_registerMenuCommand('查看当前上位机', () => {
-            showNotification(`已配对 ${getPairedMonitorAddresses().length} 台，当前：${getMonitorAddressText()}`);
+        GM_registerMenuCommand('查看订单联动设备', () => {
+            const devices = getRecorderDevices();
+            const summary = devices.map(device =>
+                `${device.name}：${device.url.replace(/^https?:\/\//i, '')}`).join('\n');
+            showNotification(devices.length > 0
+                ? `订单将群发给 ${devices.length} 台录像设备：\n${summary}`
+                : '当前脚本没有录像设备，请从桌面程序更新订单联动脚本');
         });
-        GM_registerMenuCommand('切换上位机', () => {
-            const addresses = getPairedMonitorAddresses();
-            const current = getMonitorAddressText();
-            const input = prompt(`请选择上位机编号：\n${addresses.map((address, index) => `${index + 1}. ${address}${address === current ? '（当前）' : ''}`).join('\n')}`, '1');
-            if (input === null) return;
-            const index = Number(input) - 1;
-            if (!Number.isInteger(index) || index < 0 || index >= addresses.length) {
-                showNotification('上位机编号无效');
-                return;
-            }
-            const selected = normalizeAddress(addresses[index], DEFAULT_PORT);
-            saveMonitorAddress(selected.host, selected.port);
-            showNotification(`已切换上位机：${addresses[index]}`);
-        });
-        GM_registerMenuCommand('添加上位机', () => {
-            const input = prompt('请输入新增监控端地址（局域网 IP:端口）：', '192.168.0.2:5280');
-            if (!input) return;
-            const value = String(input).trim().replace(/^https?:\/\//i, '').split('/')[0];
-            const host = value.split(':')[0];
-            if (!isAllowedMonitorHost(host)) {
-                showNotification('地址无效，只支持局域网 IPv4 或 localhost');
-                return;
-            }
-            const address = formatAddress(normalizeAddress(value, DEFAULT_PORT));
-            const paired = getPairedMonitorAddresses();
-            if (!paired.includes(address) && paired.length >= MAX_MONITOR_ADDRESSES) {
-                showNotification(`最多配对 ${MAX_MONITOR_ADDRESSES} 台上位机`);
-                return;
-            }
-            const addresses = normalizeAddressList([...paired, address]);
-            const guideUrl = `${getBaseUrl(getMonitorAddressText())}/kuaidizs-install-guide?connect=${encodeURIComponent(addresses.join(','))}`;
-            GM_openInTab(guideUrl, { active: true, setParent: true });
-            showNotification('请在打开的安装页覆盖更新脚本，完成新增上位机授权');
-        });
-        GM_registerMenuCommand('移除上位机', () => {
-            const addresses = getPairedMonitorAddresses();
-            if (addresses.length <= 1) {
-                showNotification('至少需要保留一台上位机');
-                return;
-            }
-            const input = prompt(`请输入要移除的上位机编号：\n${addresses.map((address, index) => `${index + 1}. ${address}`).join('\n')}`);
-            if (input === null) return;
-            const index = Number(input) - 1;
-            if (!Number.isInteger(index) || index < 0 || index >= addresses.length) {
-                showNotification('上位机编号无效');
-                return;
-            }
-            const remaining = addresses.filter((_, addressIndex) => addressIndex !== index);
-            const active = remaining.includes(getMonitorAddressText()) ? getMonitorAddressText() : remaining[0];
-            const selected = normalizeAddress(active, DEFAULT_PORT);
-            saveMonitorAddress(selected.host, selected.port);
-            GM_setValue(MONITOR_ADDRESSES_KEY, remaining);
-            const guideUrl = `${getBaseUrl(active)}/kuaidizs-install-guide?connect=${encodeURIComponent(remaining.join(','))}`;
-            GM_openInTab(guideUrl, { active: true, setParent: true });
-            showNotification('请在打开的安装页覆盖更新脚本，完成移除');
-        });
-        GM_registerMenuCommand('重新连接上位机', async () => {
-            showNotification('正在连接已配置的上位机...');
-            const found = await findMonitorAddress(true);
-            showNotification(found ? `已连接：${found}` : '连接失败，请从监控端安装页更新脚本或手动设置地址');
-        });
-        GM_registerMenuCommand('发送测试订单', async () => {
+        GM_registerMenuCommand('发送测试订单到全部设备', async () => {
             await sendTestOrder();
         });
-        GM_registerMenuCommand('立即推送订单数据', () => {
+        GM_registerMenuCommand('立即发送当前订单', () => {
             extractAndPush();
         });
-        GM_registerMenuCommand('重新打开退款核验工作页', () => {
+        GM_registerMenuCommand('重新打开退款核验页', () => {
             GM_setValue(REFUND_WORKER_HEARTBEAT_KEY, 0);
             ensureRefundWorker(true, true);
         });
@@ -678,7 +473,7 @@
         return orders;
     }
 
-    // ============ 推送到上位机 ============
+    // ============ 群发到录像设备 ============
     function sendOrderToRecorder(device, orders) {
         const address = normalizeAddress(device?.url || '', DEFAULT_PORT);
         return new Promise(resolve => {
@@ -772,18 +567,17 @@
     }
 
     async function sendConnectionHeartbeat() {
+        if (!getHostBaseUrl()) return false;
         const response = await requestMonitor('POST', getConnectionHeartbeatUrl(), {
             clientId: getConnectionClientId(),
             clientType: 'userscript',
             displayName: '快递端油猴脚本'
         }, 3000);
-        if (response.status === 200) return true;
-        await ensureMonitorAddress(false);
-        return false;
+        return response.status === 200;
     }
 
     async function startConnectionHeartbeat() {
-        if (await ensureMonitorAddress(true))
+        if (await canConnectHost())
             await sendConnectionHeartbeat();
         setInterval(sendConnectionHeartbeat, CONNECTION_HEARTBEAT_INTERVAL_MS);
     }
@@ -1012,7 +806,7 @@
         testOrderSending = true;
         showNotification(`正在向 ${getRecorderDevices().length} 个录像设备发送测试订单`);
         try {
-            await pushToMonitor(buildTestOrder(), { isTest: true, skipAddressDiscovery: true });
+            await pushToMonitor(buildTestOrder(), { isTest: true });
         } finally {
             testOrderSending = false;
         }
@@ -1101,8 +895,14 @@
     if (IS_REFUND_WORKER) {
         setTimeout(async () => {
             if (!await startRefundWorkerHeartbeat()) return;
-            await ensureMonitorAddress(true);
-            startOrderLookupPolling();
+            const startWhenHostAvailable = async () => {
+                if (await canConnectHost()) {
+                    startOrderLookupPolling();
+                    return;
+                }
+                setTimeout(startWhenHostAvailable, REFUND_WORKER_RECHECK_INTERVAL_MS);
+            };
+            await startWhenHostAvailable();
         }, 0);
     } else {
         // 普通页面只负责订单推送，不再领取退款请求或切换筛选。
@@ -1114,7 +914,7 @@
             observer.observe(target, { childList: true, subtree: true });
             debugLog('[打包监控] DOM 监听已启动, 目标:', target.tagName, target.className || '(body)');
             bindActionButtons();
-            const monitorReachable = await ensureMonitorAddress(true);
+            const monitorReachable = await canConnectHost();
             extractAndPush();
             maintainRefundWorker(monitorReachable);
             setInterval(() => maintainRefundWorker(), REFUND_WORKER_RECHECK_INTERVAL_MS);

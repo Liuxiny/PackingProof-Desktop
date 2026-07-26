@@ -32,7 +32,7 @@ function createLeaseWorker(store, token, closed) {
   };
   vm.createContext(context);
   vm.runInContext(
-    between('    function getRefundWorkerHeartbeat()', '    function getApiUrl()') +
+    between('    function getRefundWorkerHeartbeat()', '    function getOrderLookupPendingUrl()') +
       ';globalThis.claimLease=claimRefundWorkerLease;',
     context);
   return context;
@@ -55,8 +55,7 @@ function createWorkerManager({ reachable, savedTabs = {} }) {
     GM_saveTab: (tab, callback) => callback?.(),
     GM_getTabs: callback => callback(savedTabs),
     GM_openInTab: url => opened.push(url),
-    getMonitorAddress: () => ({ host: '192.168.2.11', port: 5280 }),
-    canConnectMonitor: async () => reachable,
+    canConnectHost: async () => reachable,
     buildRefundWorkerUrl: () => 'https://p4.kuaidizs.cn/?epm_refund_worker=1',
     delay: () => Promise.resolve(),
     document: { querySelector: () => ({}) },
@@ -70,7 +69,7 @@ function createWorkerManager({ reachable, savedTabs = {} }) {
   };
   vm.createContext(context);
   vm.runInContext(
-    between('    function getRefundWorkerHeartbeat()', '    function getApiUrl()') +
+    between('    function getRefundWorkerHeartbeat()', '    function getOrderLookupPendingUrl()') +
       ';globalThis.ensureWorker=ensureRefundWorker;globalThis.maintainWorker=maintainRefundWorker;',
     context);
   return { context, opened };
@@ -194,97 +193,11 @@ test('requested refund lookup always uses exact tracking-number search', () => {
   assert.doesNotMatch(body, /missing = requested\.filter/);
 });
 
-function createDiscoveryContext(initialStore, reachableHosts, installAddress = '', mobileHosts = new Set()) {
-  const store = initialStore instanceof Map ? initialStore : new Map(Object.entries(initialStore));
-  let requestCount = 0;
-  const document = {
-    createElement: () => ({ style: {}, remove() {} }),
-    body: { appendChild() {} }
-  };
-  const context = {
-    DEFAULT_HOST: '127.0.0.1', DEFAULT_PORT: 5280, DEFAULT_ADDRESS: '127.0.0.1:5280',
-    PACKING_PROOF_HOST: null,
-    PACKING_PROOF_RECORDERS: [],
-    INSTALL_MONITOR_ADDRESSES: installAddress ? [installAddress] : [],
-    INSTALL_PRIMARY_MONITOR_ADDRESS: installAddress || '',
-    MONITOR_ADDRESSES_KEY: 'monitor_addresses',
-    INSTALLED_MONITOR_ADDRESSES_KEY: 'installed_monitor_addresses',
-    INSTALLED_PRIMARY_MONITOR_ADDRESS_KEY: 'installed_primary_monitor_address',
-    MAX_MONITOR_ADDRESSES: 8,
-    DISCOVERY_DONE_KEY: 'monitor_auto_discovery_done',
-    DISCOVERY_LAST_ATTEMPT_KEY: 'monitor_auto_discovery_last_attempt',
-    DISCOVERY_LOCK_KEY: 'monitor_auto_discovery_lock',
-    DISCOVERY_LOCK_MS: 30000,
-    DISCOVERY_RETRY_DELAY_MS: 1,
-    DISCOVERY_TIMEOUT: 1,
-    GM_getValue: (key, fallback) => store.has(key) ? store.get(key) : fallback,
-    GM_setValue: (key, value) => store.set(key, value),
-    showNotification: () => {},
-    getStorageUrl: (host, port) => `http://${host}:${port}/api/storage`,
-    GM_xmlhttpRequest: options => {
-      requestCount += 1;
-      const host = new URL(options.url).hostname;
-      queueMicrotask(() => options.onload({
-        status: reachableHosts.has(host) ? 200 : 503,
-        responseText: JSON.stringify(mobileHosts.has(host) ? { service: 'packingproof-mobile' } : {})
-      }));
-    },
-    window: {}, document, setTimeout, clearTimeout, URL, Promise, Set, Array, String, Number, Boolean, Math, Date
-  };
-  vm.createContext(context);
-  vm.runInContext(
-    between('    function getBaseUrl(', '    // 专用工作页不显示业务菜单') +
-      ';globalThis.findMonitor=findMonitorAddress;globalThis.ensureMonitor=ensureMonitorAddress;globalThis.shouldDiscover=shouldAttemptMonitorDiscovery;globalThis.getPaired=getPairedMonitorAddresses;globalThis.applyInstalled=applyInstalledMonitorAddresses;',
-    context);
-  return { context, store, getRequestCount: () => requestCount };
-}
-
-test('installed monitor address replaces an offline saved address without scanning the subnet', async () => {
-  const { context, store } = createDiscoveryContext(
-    { monitor_address: '192.168.31.250:5280' },
-    new Set(['192.168.31.10']),
-    '192.168.31.10:5280');
-  assert.equal(await context.findMonitor(false), '192.168.31.10:5280');
-  assert.equal(store.get('monitor_address'), '192.168.31.10:5280');
-});
-
-test('address lookup probes only installed saved and local addresses', async () => {
-  const { context, getRequestCount } = createDiscoveryContext(
-    { monitor_address: '192.168.31.250:5280' },
-    new Set(),
-    '192.168.31.10:5280');
-  assert.equal(await context.findMonitor(false), '');
-  assert.equal(getRequestCount(), 3);
-});
-
-test('paired monitor list fails over only among explicitly configured addresses', async () => {
-  const { context, store, getRequestCount } = createDiscoveryContext(
-    {
-      monitor_address: '192.168.31.10:5280',
-      monitor_addresses: ['192.168.31.10:5280', '192.168.31.11:5280']
-    },
-    new Set(['192.168.31.11']));
-
-  assert.equal(await context.findMonitor(false), '192.168.31.11:5280');
-  assert.equal(store.get('monitor_address'), '192.168.31.11:5280');
-  assert.equal(getRequestCount(), 2);
-});
-
-test('mobile order receiver is broadcast target but never selected as refund controller', async () => {
-  const phone = '192.168.31.205';
-  const computer = '192.168.31.250';
-  const { context, store, getRequestCount } = createDiscoveryContext(
-    {
-      monitor_address: `${phone}:5280`,
-      monitor_addresses: [`${phone}:5280`, `${computer}:5280`]
-    },
-    new Set([phone, computer]),
-    '',
-    new Set([phone]));
-
-  assert.equal(await context.findMonitor(false), `${computer}:5280`);
-  assert.equal(store.get('monitor_address'), `${computer}:5280`);
-  assert.equal(getRequestCount(), 2);
+test('userscript keeps installed recorders as the only order targets', () => {
+  assert.match(source, /const PACKING_PROOF_RECORDERS = \[\];/);
+  assert.match(source, /const PACKING_PROOF_HOST = null;/);
+  assert.doesNotMatch(source, /findMonitorAddress|ensureMonitorAddress|monitor_auto_discovery/);
+  assert.doesNotMatch(source, /切换上位机|添加上位机|移除上位机|重新连接上位机/);
 });
 
 test('order push broadcasts to every paired receiver and tolerates one offline device', async () => {
@@ -341,71 +254,23 @@ test('order push broadcasts to every paired receiver and tolerates one offline d
   assert.match(notifications[0], /1\/2/);
 });
 
-test('updated install list removes withdrawn monitor permissions from stored pairing', () => {
-  const { context, store } = createDiscoveryContext(
-    new Map([
-      ['monitor_address', '192.168.31.11:5280'],
-      ['monitor_addresses', ['192.168.31.10:5280', '192.168.31.11:5280']],
-      ['installed_monitor_addresses', ['192.168.31.10:5280', '192.168.31.11:5280']]
-    ]),
-    new Set(),
-    '192.168.31.10:5280');
-
-  context.applyInstalled();
-  assert.deepEqual(Array.from(store.get('monitor_addresses')), ['192.168.31.10:5280']);
-  assert.equal(store.get('monitor_address'), '192.168.31.10:5280');
-});
-
-test('failed discovery retries after backoff and recovers when monitor comes online', async () => {
-  const reachableHosts = new Set();
-  const { context, store } = createDiscoveryContext({}, reachableHosts, '192.168.31.10:5280');
-
-  assert.equal(await context.ensureMonitor(true), false);
-  assert.equal(store.get('monitor_auto_discovery_done'), true);
-  reachableHosts.add('192.168.31.10');
-  await new Promise(resolve => setTimeout(resolve, 2));
-
-  assert.equal(await context.ensureMonitor(false), true);
-  assert.equal(store.get('monitor_address'), '192.168.31.10:5280');
-});
-
-test('discovery backoff prevents repeated full scans before retry time', () => {
-  assert.equal(
-    createDiscoveryContext({}, new Set()).context.shouldDiscover(false, true, 1000, 1000),
-    false);
-  assert.equal(
-    createDiscoveryContext({}, new Set()).context.shouldDiscover(false, true, 1000, 1001),
-    true);
-});
-
-test('shared discovery lock prevents heartbeat tabs from scanning concurrently', async () => {
-  const store = new Map();
-  const first = createDiscoveryContext(store, new Set(), ['192.168.31']);
-  const second = createDiscoveryContext(store, new Set(), ['192.168.31']);
-  const firstScan = first.context.ensureMonitor(true);
-  const secondResult = await second.context.ensureMonitor(true);
-  await firstScan;
-  assert.equal(secondResult, false);
-  assert.equal(second.getRequestCount(), 0);
-  assert.ok(first.getRequestCount() > 0);
-});
-
 function createConnectionHeartbeatContext(status = 200) {
   const store = new Map();
   const requests = [];
   const intervals = [];
-  let discoveryCalls = 0;
+  let hostChecks = 0;
   const context = {
     CONNECTION_CLIENT_ID_KEY: 'connection_client_id',
     CONNECTION_HEARTBEAT_INTERVAL_MS: 15000,
     GM_getValue: (key, fallback) => store.has(key) ? store.get(key) : fallback,
     GM_setValue: (key, value) => store.set(key, value),
+    getHostBaseUrl: () => 'http://192.168.1.20:5280',
     getConnectionHeartbeatUrl: () => 'http://192.168.1.20:5280/api/connections/heartbeat',
     requestMonitor: async (method, url, data, timeout) => {
       requests.push({ method, url, data, timeout });
       return { status, body: {} };
     },
-    ensureMonitorAddress: async () => { discoveryCalls += 1; return false; },
+    canConnectHost: async () => { hostChecks += 1; return status === 200; },
     setInterval: (callback, delay) => { intervals.push({ callback, delay }); return intervals.length; },
     Math,
     Date,
@@ -417,7 +282,7 @@ function createConnectionHeartbeatContext(status = 200) {
     between('    function getConnectionClientId()', '    function delay(') +
       ';globalThis.getClientId=getConnectionClientId;globalThis.sendHeartbeat=sendConnectionHeartbeat;globalThis.startHeartbeat=startConnectionHeartbeat;',
     context);
-  return { context, store, requests, intervals, getDiscoveryCalls: () => discoveryCalls };
+  return { context, store, requests, intervals, getHostChecks: () => hostChecks };
 }
 
 test('userscript heartbeat keeps one persistent id across tabs', async () => {
@@ -433,11 +298,11 @@ test('userscript heartbeat keeps one persistent id across tabs', async () => {
   assert.equal(first.requests[0].data.clientType, 'userscript');
 });
 
-test('userscript heartbeat uses 15 second interval and recovery respects discovery helper', async () => {
+test('userscript heartbeat uses 15 second interval and validates only the installed host', async () => {
   const failed = createConnectionHeartbeatContext(0);
   failed.context.startHeartbeat();
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(failed.intervals.length, 1);
   assert.equal(failed.intervals[0].delay, 15000);
-  assert.equal(failed.getDiscoveryCalls(), 1);
+  assert.equal(failed.getHostChecks(), 1);
 });

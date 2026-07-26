@@ -593,4 +593,8 @@
   <data name="暂不可用" xml:space="preserve"><value>Temporarily unavailable</value></data>
   <data name="手机连接服务启用失败，请检查配置文件权限" xml:space="preserve"><value>Unable to enable the phone connection service. Check configuration file permissions</value></data>
   <data name="正在启动手机连接服务..." xml:space="preserve"><value>Starting the phone connection service...</value></data>
+  <data name="安装或更新快递助手订单联动脚本" xml:space="preserve"><value>Install or update the Express Assistant order integration script</value></data>
+  <data name="脚本会读取最近使用过的录像设备，并把订单同时发送给所有设备" xml:space="preserve"><value>The script reads recently used recording devices and sends orders to all of them</value></data>
+  <data name="尚未配置订单联动" xml:space="preserve"><value>Order integration is not configured</value></data>
+  <data name="安装订单联动" xml:space="preserve"><value>Install order integration</value></data>
 </root>

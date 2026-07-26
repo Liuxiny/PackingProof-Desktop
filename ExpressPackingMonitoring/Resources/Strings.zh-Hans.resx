@@ -593,4 +593,8 @@
   <data name="暂不可用" xml:space="preserve"><value>暂不可用</value></data>
   <data name="手机连接服务启用失败，请检查配置文件权限" xml:space="preserve"><value>手机连接服务启用失败，请检查配置文件权限</value></data>
   <data name="正在启动手机连接服务..." xml:space="preserve"><value>正在启动手机连接服务...</value></data>
+  <data name="安装或更新快递助手订单联动脚本" xml:space="preserve"><value>安装或更新快递助手订单联动脚本</value></data>
+  <data name="脚本会读取最近使用过的录像设备，并把订单同时发送给所有设备" xml:space="preserve"><value>脚本会读取最近使用过的录像设备，并把订单同时发送给所有设备</value></data>
+  <data name="尚未配置订单联动" xml:space="preserve"><value>尚未配置订单联动</value></data>
+  <data name="安装订单联动" xml:space="preserve"><value>安装订单联动</value></data>
 </root>

@@ -261,19 +261,21 @@ public sealed class ConfigurationAndScannerTests
         Assert.DoesNotContain("// @connect      *", script);
         Assert.DoesNotContain("RTCPeerConnection", script);
         Assert.DoesNotContain("start <= 254", script);
-        Assert.Contains("applyInstalledMonitorAddresses();", script);
-        Assert.Contains("GM_registerMenuCommand('切换上位机'", script);
-        Assert.Contains("GM_registerMenuCommand('添加上位机'", script);
-        Assert.Contains("GM_registerMenuCommand('移除上位机'", script);
-        Assert.Contains("const MAX_MONITOR_ADDRESSES = 8", script);
+        Assert.DoesNotContain("applyInstalledMonitorAddresses();", script);
+        Assert.DoesNotContain("切换上位机", script);
+        Assert.DoesNotContain("添加上位机", script);
+        Assert.DoesNotContain("移除上位机", script);
+        Assert.DoesNotContain("ensureMonitorAddress", script);
+        Assert.Contains("GM_registerMenuCommand('查看订单联动设备'", script);
+        Assert.Contains("GM_registerMenuCommand('发送测试订单到全部设备'", script);
+        Assert.Contains("GM_registerMenuCommand('立即发送当前订单'", script);
         Assert.Contains("const PACKING_PROOF_RECORDERS = []", script);
         Assert.Contains("Promise.allSettled(", script);
         Assert.Contains("devices.map(device => sendOrderToRecorder(device, orders))", script);
         Assert.Contains("console.warn(`[PackingProof] ${result.name}", script);
         Assert.Contains("successfulCount: successful.length", script);
-        Assert.Contains("result.response?.service !== 'packingproof-mobile'", script);
-        Assert.Contains("await pushToMonitor(buildTestOrder(), { isTest: true, skipAddressDiscovery: true });", script);
-        Assert.DoesNotContain("const connected = await ensureMonitorAddress(true);", script);
+        Assert.Contains("result.response?.protocol === 'packingproof'", script);
+        Assert.Contains("await pushToMonitor(buildTestOrder(), { isTest: true });", script);
         Assert.DoesNotContain("// @connect      127.0.0.1", script);
         Assert.DoesNotContain("// @connect      localhost", script);
     }
@@ -335,7 +337,7 @@ public sealed class ConfigurationAndScannerTests
             html,
             StringComparison.Ordinal);
         Assert.Contains(
-            "map['安装后打开 Tampermonkey 菜单，点击“发送测试订单”，脚本会分别测试所有录像设备。']",
+            "map['安装后打开 Tampermonkey 菜单，点击“发送测试订单到全部设备”，脚本会分别测试所有录像设备。']",
             html,
             StringComparison.Ordinal);
     }

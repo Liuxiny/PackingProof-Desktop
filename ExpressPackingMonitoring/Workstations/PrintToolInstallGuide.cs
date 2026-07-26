@@ -52,7 +52,7 @@ internal static class PrintToolInstallGuide
     public static string RenderForWeb(IReadOnlyList<RecordingDeviceInfo> devices, string scriptUrl)
     {
         string deviceSummary = devices.Count == 0
-            ? "<div class=\"warn\">当前没有发现可接收订单的录像设备。请检查录像设备连接后重新搜索或重新生成脚本。</div>"
+            ? "<div class=\"warn\">当前没有发现可接收订单的录像设备。请检查录像设备连接后返回桌面程序重试。</div>"
             : $"""
 <div class="devices">
   <strong><span>找到</span> {devices.Count} <span>个录像设备</span></strong>
@@ -248,8 +248,8 @@ internal static class PrintToolInstallGuide
     private static string BuildScriptLink(string scriptUrl)
     {
         return string.IsNullOrWhiteSpace(scriptUrl)
-            ? "<div class=\"warn\">未找到订单备注插件脚本文件，请确认发布包内包含 Scripts 文件夹。</div>"
-            : $"<a class=\"primary\" href=\"{WebUtility.HtmlEncode(scriptUrl)}\" target=\"_blank\" rel=\"noopener\">打开订单备注插件安装页</a>";
+            ? "<div class=\"warn\">未找到订单联动脚本文件，请确认发布包内包含 Scripts 文件夹。</div>"
+            : $"<a class=\"primary\" href=\"{WebUtility.HtmlEncode(scriptUrl)}\" target=\"_blank\" rel=\"noopener\">打开订单联动脚本安装页</a>";
     }
 
     private const string MissingTemplateHtml = """

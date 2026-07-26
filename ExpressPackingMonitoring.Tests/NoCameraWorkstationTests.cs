@@ -59,7 +59,10 @@ public sealed class NoCameraWorkstationTests
         Assert.DoesNotContain("我没有电脑摄像头", xaml, StringComparison.Ordinal);
         Assert.DoesNotContain("打印端", xaml, StringComparison.Ordinal);
         Assert.Contains("if (!_host.IsLanAvailable)", source, StringComparison.Ordinal);
-        Assert.Contains("_host.LanAccessUrl.TrimEnd", source, StringComparison.Ordinal);
+        Assert.Contains(
+            "UserscriptGuideNavigation.TryOpen(_host.LanAccessUrl",
+            source,
+            StringComparison.Ordinal);
         Assert.DoesNotContain(
             "PrintToolInstallGuide.CreateLocalGuide(LocalOrderAddress)",
             source,
