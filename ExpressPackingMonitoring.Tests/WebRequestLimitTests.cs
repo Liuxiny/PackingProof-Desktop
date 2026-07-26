@@ -117,6 +117,21 @@ public sealed class WebRequestLimitTests
     }
 
     [Fact]
+    public void PlaybackHeaderLinksProjectAndInstallCardLinksGuide()
+    {
+        string html = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Web", "index.html"));
+
+        Assert.Contains(
+            "<a href=\"https://gitee.com/PackingProof\" target=\"_blank\" rel=\"noopener\">快递打包录像回放</a>",
+            html,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "class=\"install-card\" href=\"/kuaidizs-install-guide\"",
+            html,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void MobileOverview_UsesCompactCardsAndDisablesCompatibilityOnFirstVisit()
     {
         string html = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Web", "index.html"));

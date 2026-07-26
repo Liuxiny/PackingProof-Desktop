@@ -3413,8 +3413,7 @@ namespace ExpressPackingMonitoring.ViewModels
                 return;
             }
 
-            string url = $"http://{MonitorAccessAddress}/kuaidizs-install-guide?refresh={DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
-            if (!WorkstationNetwork.TryOpenUrl(url, out string error))
+            if (!UserscriptGuideNavigation.TryOpen($"http://{MonitorAccessAddress}", out string error))
                 ShowToast($"打开快递助手联动安装向导失败：{error}");
         }
 

@@ -432,8 +432,7 @@ public partial class PrintWorkstationWindow : Window
             return;
         }
 
-        string url = $"{_host.LanAccessUrl.TrimEnd('/')}/kuaidizs-install-guide?refresh={DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
-        if (!WorkstationNetwork.TryOpenUrl(url, out string error))
+        if (!UserscriptGuideNavigation.TryOpen(_host.LanAccessUrl, out string error))
         {
             SetStatus("打开快递助手联动安装向导失败", error, StatusVisual.Error);
             return;

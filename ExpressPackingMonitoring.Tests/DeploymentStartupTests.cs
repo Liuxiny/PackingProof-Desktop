@@ -1,10 +1,23 @@
 using ExpressPackingMonitoring.Config;
+using ExpressPackingMonitoring.Services;
 using Xunit;
 
 namespace ExpressPackingMonitoring.Tests;
 
 public sealed class DeploymentStartupTests
 {
+    [Fact]
+    public void UserscriptGuideNavigationAlwaysBuildsHostedGuideUrl()
+    {
+        string url = UserscriptGuideNavigation.BuildUrl("http://192.168.1.20:5280/");
+
+        Assert.StartsWith(
+            "http://192.168.1.20:5280/kuaidizs-install-guide?refresh=",
+            url,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("/?refresh=", url, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("RecordingHost", DeploymentPresets.RecordingHost)]
     [InlineData("CameraMonitor", DeploymentPresets.RecordingHost)]
@@ -234,7 +247,7 @@ public sealed class DeploymentStartupTests
             StringComparison.Ordinal);
         Assert.DoesNotContain("· 录像设备 {recorderCount}", source, StringComparison.Ordinal);
         Assert.Contains("public void OpenUserscriptGuide()", source, StringComparison.Ordinal);
-        Assert.Contains("/kuaidizs-install-guide", source, StringComparison.Ordinal);
+        Assert.Contains("UserscriptGuideNavigation.TryOpen", source, StringComparison.Ordinal);
         Assert.Contains("ItemsSource=\"{Binding MobileBackupDeviceStatuses}\"", xaml, StringComparison.Ordinal);
         Assert.Contains("Text=\"连接手机\"", xaml, StringComparison.Ordinal);
         Assert.Contains("Text=\"订单联动\"", xaml, StringComparison.Ordinal);
@@ -262,7 +275,7 @@ public sealed class DeploymentStartupTests
             "PrintWorkstationWindow.xaml.cs");
 
         Assert.Contains("OpenUserscriptGuide = OpenUserscriptGuide", source, StringComparison.Ordinal);
-        Assert.Contains("/kuaidizs-install-guide?refresh=", source, StringComparison.Ordinal);
+        Assert.Contains("UserscriptGuideNavigation.TryOpen", source, StringComparison.Ordinal);
     }
 
     private static string ReadRepositoryFile(params string[] parts)

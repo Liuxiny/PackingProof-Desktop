@@ -169,8 +169,7 @@ public partial class ViewerClientWindow : Window
             return;
         }
 
-        string url = $"{address.TrimEnd('/')}/kuaidizs-install-guide?refresh={DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
-        if (!WorkstationNetwork.TryOpenUrl(url, out string error))
+        if (!UserscriptGuideNavigation.TryOpen(address, out string error))
             MessageBox.Show(this, error, "安装快递助手联动失败", MessageBoxButton.OK, MessageBoxImage.Error);
     }
 
