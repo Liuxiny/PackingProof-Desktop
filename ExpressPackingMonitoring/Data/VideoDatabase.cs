@@ -351,6 +351,53 @@ namespace ExpressPackingMonitoring.Data
             }
         }
 
+        public MobileBackupOverview GetMobileBackupOverview(DateTime day)
+        {
+            DateTime start = day.Date;
+            DateTime end = start.AddDays(1);
+            lock (_lock)
+            {
+                var deviceCounts = new List<MobileBackupDailyCount>();
+                using (var dailyCommand = _connection.CreateCommand())
+                {
+                    dailyCommand.CommandText = @"
+                        SELECT SourceDeviceId, MAX(SourceDeviceName), COUNT(1)
+                        FROM VideoRecords
+                        WHERE SourceType = 'external'
+                          AND SourceDeviceId <> ''
+                          AND BackupCompletedAt IS NOT NULL
+                          AND BackupCompletedAt <> ''
+                          AND BackupCompletedAt >= @start
+                          AND BackupCompletedAt < @end
+                        GROUP BY SourceDeviceId
+                        ORDER BY MAX(SourceDeviceName), SourceDeviceId;";
+                    dailyCommand.Parameters.AddWithValue("@start", start.ToString("yyyy-MM-dd HH:mm:ss"));
+                    dailyCommand.Parameters.AddWithValue("@end", end.ToString("yyyy-MM-dd HH:mm:ss"));
+                    using var reader = dailyCommand.ExecuteReader();
+                    while (reader.Read())
+                    {
+                        deviceCounts.Add(new MobileBackupDailyCount(
+                            reader.GetString(0),
+                            reader.IsDBNull(1) ? "" : reader.GetString(1),
+                            reader.GetInt32(2)));
+                    }
+                }
+
+                using var totalCommand = _connection.CreateCommand();
+                totalCommand.CommandText = @"
+                    SELECT COUNT(1)
+                    FROM VideoRecords
+                    WHERE SourceType = 'external'
+                      AND BackupCompletedAt IS NOT NULL
+                      AND BackupCompletedAt <> '';";
+                int totalCount = Convert.ToInt32(totalCommand.ExecuteScalar());
+                return new MobileBackupOverview(
+                    deviceCounts,
+                    deviceCounts.Sum(item => item.VideoCount),
+                    totalCount);
+            }
+        }
+
         public VideoRecord GetVideoBySourceSession(string sourceDeviceId, string sourceSessionId)
         {
             if (string.IsNullOrWhiteSpace(sourceDeviceId) || string.IsNullOrWhiteSpace(sourceSessionId))
@@ -1584,6 +1631,11 @@ namespace ExpressPackingMonitoring.Data
         string DeviceId,
         string DeviceName,
         int VideoCount);
+
+    public sealed record MobileBackupOverview(
+        IReadOnlyList<MobileBackupDailyCount> DeviceCounts,
+        int TodayCount,
+        int TotalCount);
 
     public sealed record VideoSourceInfo(
         string SourceType,

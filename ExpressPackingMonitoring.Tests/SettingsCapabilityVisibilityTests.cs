@@ -11,8 +11,8 @@ public sealed class SettingsCapabilityVisibilityTests
         "http://schemas.microsoft.com/winfx/2006/xaml";
 
     [Theory]
-    [InlineData("StatisticsButton", "数据统计")]
-    [InlineData("PlaybackButton", "录像回放")]
+    [InlineData("StatisticsButton", "数据")]
+    [InlineData("PlaybackButton", "回放")]
     [InlineData("SettingsButton", "设置")]
     [InlineData("OpenWebButton", "网页回放")]
     public void NoCameraWindowExposesSharedWindowAndWebPlaybackEntries(string name, string content)
@@ -22,7 +22,9 @@ public sealed class SettingsCapabilityVisibilityTests
                 .Descendants(Presentation + "Button"),
             element => (string?)element.Attribute(Xaml + "Name") == name);
 
-        Assert.Equal(content, (string?)button.Attribute("Content"));
+        Assert.Contains(
+            button.Descendants(Presentation + "TextBlock"),
+            element => (string?)element.Attribute("Text") == content);
     }
 
     [Theory]

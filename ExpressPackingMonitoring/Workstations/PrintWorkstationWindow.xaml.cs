@@ -1,7 +1,9 @@
 using ExpressPackingMonitoring.Config;
+using ExpressPackingMonitoring.Data;
 using ExpressPackingMonitoring.Services;
 using ExpressPackingMonitoring.Themes;
 using ExpressPackingMonitoring.UI;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
@@ -12,6 +14,13 @@ namespace ExpressPackingMonitoring;
 
 public partial class PrintWorkstationWindow : Window
 {
+    public sealed class MobileBackupStatusItem
+    {
+        public string DeviceId { get; init; } = "";
+        public string DisplayText { get; init; } = "";
+        public bool IsOnline { get; init; }
+    }
+
     private enum StatusVisual
     {
         Neutral,
@@ -33,6 +42,7 @@ public partial class PrintWorkstationWindow : Window
     private bool _exitRequestedFromTray;
     private bool _deploymentSetupPersisted;
     private bool _testOrderSending;
+    public ObservableCollection<MobileBackupStatusItem> MobileBackupDeviceStatuses { get; } = [];
 
     public PrintWorkstationWindow(
         AppConfig config,
@@ -46,6 +56,7 @@ public partial class PrintWorkstationWindow : Window
         _requestLanAccessOnStartup = requestLanAccessOnStartup;
         _host = new NoCameraWorkstationHost(config);
         _host.MobileAppUpdateAvailable += OnMobileAppUpdateAvailable;
+        _host.MobileBackupStatusChanged += OnMobileBackupStatusChanged;
         _closeBehaviorController = new WindowCloseBehaviorController(
             this,
             RequestExitFromTray,
@@ -59,6 +70,7 @@ public partial class PrintWorkstationWindow : Window
             _closeBehaviorController.Dispose();
             _deviceRefreshTimer.Stop();
             _lifetimeCts.Cancel();
+            _host.MobileBackupStatusChanged -= OnMobileBackupStatusChanged;
             _host.Dispose();
             _lifetimeCts.Dispose();
         };
@@ -125,6 +137,7 @@ public partial class PrintWorkstationWindow : Window
         StoragePathTextBlock.Text = string.IsNullOrWhiteSpace(_host.StoragePath)
             ? "手机录像存储：暂不可用"
             : $"手机录像存储：{_host.StoragePath}";
+        HostIdentityTextBlock.Text = $"{GetHostName()} · {GetDisplayAddress()}";
         RefreshDeviceSummary();
         if (_host.IsLanAvailable)
         {
@@ -288,14 +301,115 @@ public partial class PrintWorkstationWindow : Window
 
     private void RefreshDeviceSummary()
     {
-        RecorderCountTextBlock.Text = $"当前录像设备：{_host.GetRecordingDevices().Count}";
         UserscriptTargetStatus userscriptStatus = UserscriptTargetState.GetStatus(
             _config,
             _host.GetRecordingDevices(includeKnown: true));
         UserscriptStatusTextBlock.Text = userscriptStatus.StatusText;
-        InstallUserscriptButton.Content = userscriptStatus.ButtonText;
+        InstallUserscriptButtonText.Text = userscriptStatus.ButtonText;
         InstallUserscriptButton.IsEnabled = userscriptStatus.CurrentSignature.Length > 0;
-        ConnectedPhoneCountTextBlock.Text = $"已连接手机：{_host.GetConnectedMobileCount()}";
+
+        MobileBackupDeviceStatuses.Clear();
+        if (!_host.HasDatabase)
+        {
+            TodayBackupCountTextBlock.Text = "0";
+            TotalBackupCountTextBlock.Text = "0";
+            AddEmptyDeviceStatus();
+            return;
+        }
+
+        MobileBackupOverview overview = _host.Database.GetMobileBackupOverview(DateTime.Today);
+        foreach (MobileBackupStatusItem status in BuildMobileBackupStatuses(
+            overview.DeviceCounts,
+            _host.GetRecordingDevices()))
+        {
+            MobileBackupDeviceStatuses.Add(status);
+        }
+
+        TodayBackupCountTextBlock.Text = overview.TodayCount.ToString();
+        TotalBackupCountTextBlock.Text = overview.TotalCount.ToString();
+    }
+
+    internal static IReadOnlyList<MobileBackupStatusItem> BuildMobileBackupStatuses(
+        IEnumerable<MobileBackupDailyCount> counts,
+        IEnumerable<RecordingDeviceInfo> devices)
+    {
+        var statuses = counts.ToDictionary(
+            item => item.DeviceId,
+            item => (
+                Name: string.IsNullOrWhiteSpace(item.DeviceName)
+                    ? GetFallbackDeviceName(item.DeviceId)
+                    : item.DeviceName,
+                Count: item.VideoCount,
+                Online: false),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (RecordingDeviceInfo device in devices
+            .Where(device => device.Online
+                && string.Equals(device.DeviceType, "mobile", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(device.NodeId)))
+        {
+            statuses.TryGetValue(device.NodeId, out var existing);
+            statuses[device.NodeId] = (
+                string.IsNullOrWhiteSpace(device.NodeName)
+                    ? existing.Name ?? GetFallbackDeviceName(device.NodeId)
+                    : device.NodeName,
+                existing.Count,
+                true);
+        }
+
+        List<MobileBackupStatusItem> result = statuses
+            .OrderBy(item => item.Value.Name, StringComparer.CurrentCulture)
+            .ThenBy(item => item.Key, StringComparer.Ordinal)
+            .Select(status => new MobileBackupStatusItem
+            {
+                DeviceId = status.Key,
+                DisplayText = $"{status.Value.Name} · 今日备份 {status.Value.Count} 个",
+                IsOnline = status.Value.Online
+            })
+            .ToList();
+        if (result.Count == 0)
+        {
+            result.Add(new MobileBackupStatusItem
+            {
+                DisplayText = "暂无手机设备在线",
+                IsOnline = false
+            });
+        }
+        return result;
+    }
+
+    private void AddEmptyDeviceStatus()
+    {
+        MobileBackupDeviceStatuses.Add(new MobileBackupStatusItem
+        {
+            DisplayText = "暂无手机设备在线",
+            IsOnline = false
+        });
+    }
+
+    private string GetHostName() =>
+        string.IsNullOrWhiteSpace(_config.NodeName) ? Environment.MachineName : _config.NodeName;
+
+    private string GetDisplayAddress()
+    {
+        string address = _host.IsLanAvailable ? _host.LanAccessUrl : "";
+        return Uri.TryCreate(address, UriKind.Absolute, out Uri? uri)
+            ? uri.Authority
+            : "局域网服务未就绪";
+    }
+
+    private static string GetFallbackDeviceName(string _)
+    {
+        return "手机";
+    }
+
+    private void OnMobileBackupStatusChanged()
+    {
+        _ = Dispatcher.InvokeAsync(() =>
+        {
+            if (IsLoaded)
+                RefreshDeviceSummary();
+        });
     }
 
     private void OnMobileAppUpdateAvailable(MobileAppUpdateAvailableInfo update)
@@ -461,7 +575,7 @@ public partial class PrintWorkstationWindow : Window
 
         _testOrderSending = true;
         SendTestOrderButton.IsEnabled = false;
-        SendTestOrderButton.Content = "正在发送";
+        SendTestOrderButtonText.Text = "正在发送";
         SetStatus("正在发送测试订单", "测试订单将同时发送给当前在线的全部录像设备");
         try
         {
@@ -489,7 +603,7 @@ public partial class PrintWorkstationWindow : Window
         {
             _testOrderSending = false;
             SendTestOrderButton.IsEnabled = _host.IsLanAvailable;
-            SendTestOrderButton.Content = "发送测试订单";
+            SendTestOrderButtonText.Text = "发送测试订单";
         }
     }
 

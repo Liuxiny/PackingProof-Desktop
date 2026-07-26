@@ -124,7 +124,7 @@ public sealed class DeploymentStartupTests
 
         Assert.Contains("Content=\"切换用途\"", viewerXaml, StringComparison.Ordinal);
         Assert.Contains("Click=\"SwitchPurpose_Click\"", viewerXaml, StringComparison.Ordinal);
-        Assert.Contains("Content=\"切换用途\"", mobileBackupXaml, StringComparison.Ordinal);
+        Assert.Contains("Text=\"切换用途\"", mobileBackupXaml, StringComparison.Ordinal);
         Assert.Contains("Text=\"切换用途\"", recordingXaml, StringComparison.Ordinal);
         Assert.Contains("new WorkstationSelectionWindow { Owner = this }", source, StringComparison.Ordinal);
         Assert.Contains("WorkstationNetwork.AskRestart(this)", source, StringComparison.Ordinal);
@@ -301,7 +301,7 @@ public sealed class DeploymentStartupTests
         Assert.Contains("x:Name=\"SendTestOrderButton\"", mobileBackupXaml, StringComparison.Ordinal);
         Assert.Equal(1, recordingXaml.Split("Text=\"发送测试订单\"", StringSplitOptions.None).Length - 1);
         Assert.Equal(1, viewerXaml.Split("Content=\"发送测试订单\"", StringSplitOptions.None).Length - 1);
-        Assert.Equal(1, mobileBackupXaml.Split("Content=\"发送测试订单\"", StringSplitOptions.None).Length - 1);
+        Assert.Equal(1, mobileBackupXaml.Split("Text=\"发送测试订单\"", StringSplitOptions.None).Length - 1);
         Assert.Contains("<Grid.RowDefinitions>", recordingXaml, StringComparison.Ordinal);
         Assert.Matches("x:Name=\"BtnInstallUserscript\"\\s+Grid.Row=\"2\"", recordingXaml);
         Assert.Matches("x:Name=\"BtnSendTestOrder\"\\s+Grid.Row=\"2\"", recordingXaml);

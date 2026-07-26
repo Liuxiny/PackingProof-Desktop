@@ -35,6 +35,36 @@ public sealed class VideoDatabaseTests
     }
 
     [Fact]
+    public void MobileBackupOverview_CountsCompletedBackupsAndKeepsDeletedHistory()
+    {
+        string tempDirectory = CreateTempDirectory();
+        try
+        {
+            using var database = new VideoDatabase(Path.Combine(tempDirectory, "videos.db"));
+            string firstPath = Path.Combine(tempDirectory, "first.mp4");
+            string deletedPath = Path.Combine(tempDirectory, "deleted.mp4");
+            database.InsertMobileBackupRecord("A", firstPath, 1, DateTime.Now, 3, "phone-a", "手机1", "session-a", "sha-a");
+            database.InsertMobileBackupRecord("B", deletedPath, 1, DateTime.Now, 3, "phone-b", "手机2", "session-b", "sha-b");
+            database.MarkVideoDeleted(deletedPath, "容量清理");
+            database.InsertVideoRecord("PC", "发货", "", "", Path.Combine(tempDirectory, "pc.mp4"), DateTime.Now);
+
+            MobileBackupOverview overview = database.GetMobileBackupOverview(DateTime.Today);
+
+            Assert.Equal(2, overview.TodayCount);
+            Assert.Equal(2, overview.TotalCount);
+            Assert.Equal(2, overview.DeviceCounts.Count);
+            Assert.Contains(overview.DeviceCounts, item =>
+                item.DeviceId == "phone-a" && item.DeviceName == "手机1" && item.VideoCount == 1);
+            Assert.Contains(overview.DeviceCounts, item =>
+                item.DeviceId == "phone-b" && item.DeviceName == "手机2" && item.VideoCount == 1);
+        }
+        finally
+        {
+            DeleteTempDirectory(tempDirectory);
+        }
+    }
+
+    [Fact]
     public void VideoSourceFilter_AppliesToPagedQueryAndReturnsDistinctSources()
     {
         string tempDirectory = CreateTempDirectory();

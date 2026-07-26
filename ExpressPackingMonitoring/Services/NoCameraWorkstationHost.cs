@@ -34,6 +34,7 @@ internal sealed class NoCameraWorkstationHost : IDisposable
     public VideoDatabase Database =>
         _database ?? throw new InvalidOperationException("录像数据库尚未打开");
     public event Action<MobileAppUpdateAvailableInfo>? MobileAppUpdateAvailable;
+    public event Action? MobileBackupStatusChanged;
 
     public IReadOnlyList<RecordingDeviceInfo> GetRecordingDevices(bool includeKnown = false)
     {
@@ -182,6 +183,14 @@ internal sealed class NoCameraWorkstationHost : IDisposable
         server.MobileAppUpdateAvailable += update =>
         {
             try { MobileAppUpdateAvailable?.Invoke(update); } catch { }
+        };
+        server.ConnectedClientsChanged += _ =>
+        {
+            try { MobileBackupStatusChanged?.Invoke(); } catch { }
+        };
+        server.MobileBackupCompleted += (_, _) =>
+        {
+            try { MobileBackupStatusChanged?.Invoke(); } catch { }
         };
         return server;
     }

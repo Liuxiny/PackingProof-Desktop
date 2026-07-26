@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Net.Sockets;
 using System.Reflection;
 using ExpressPackingMonitoring.Config;
+using ExpressPackingMonitoring.Data;
 using ExpressPackingMonitoring.Services;
 using ExpressPackingMonitoring.UI;
 using ExpressPackingMonitoring.ViewModels;
@@ -51,10 +52,16 @@ public sealed class NoCameraWorkstationTests
             "PrintWorkstationWindow.xaml.cs");
 
         Assert.Contains("PackingProof 手机备份主机", xaml, StringComparison.Ordinal);
-        Assert.Contains("手机配对", xaml, StringComparison.Ordinal);
-        Assert.Contains("当前录像设备：0", xaml, StringComparison.Ordinal);
-        Assert.Contains("已连接手机：0", xaml, StringComparison.Ordinal);
+        Assert.Contains("Text=\"连接手机\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"HostIdentityTextBlock\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"TodayBackupCountTextBlock\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"TotalBackupCountTextBlock\"", xaml, StringComparison.Ordinal);
         Assert.Contains("手机录像存储：正在检查", xaml, StringComparison.Ordinal);
+        Assert.Equal(2, xaml.Split("Style=\"{StaticResource CardStyle}\"", StringSplitOptions.None).Length - 1);
+        Assert.Contains("FluentPhoneIcon", xaml, StringComparison.Ordinal);
+        Assert.Contains("FluentDataIcon", xaml, StringComparison.Ordinal);
+        Assert.Contains("FluentVideoIcon", xaml, StringComparison.Ordinal);
+        Assert.Contains("FluentSettingsIcon", xaml, StringComparison.Ordinal);
         Assert.DoesNotContain("打印工位", xaml, StringComparison.Ordinal);
         Assert.DoesNotContain("我没有电脑摄像头", xaml, StringComparison.Ordinal);
         Assert.DoesNotContain("打印端", xaml, StringComparison.Ordinal);
@@ -67,6 +74,39 @@ public sealed class NoCameraWorkstationTests
             "PrintToolInstallGuide.CreateLocalGuide(LocalOrderAddress)",
             source,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MobileBackupStatus_MergesOnlineDevicesWithTodayBackupHistory()
+    {
+        IReadOnlyList<PrintWorkstationWindow.MobileBackupStatusItem> statuses =
+            PrintWorkstationWindow.BuildMobileBackupStatuses(
+                [
+                    new MobileBackupDailyCount("phone-1", "手机1", 3),
+                    new MobileBackupDailyCount("phone-2", "手机2", 2)
+                ],
+                [
+                    new RecordingDeviceInfo
+                    {
+                        NodeId = "phone-1",
+                        NodeName = "手机1",
+                        DeviceType = "mobile",
+                        Online = true
+                    },
+                    new RecordingDeviceInfo
+                    {
+                        NodeId = "phone-1",
+                        NodeName = "手机1",
+                        DeviceType = "mobile",
+                        Online = true
+                    }
+                ]);
+
+        Assert.Equal(2, statuses.Count);
+        Assert.Contains(statuses, item =>
+            item.DeviceId == "phone-1" && item.IsOnline && item.DisplayText == "手机1 · 今日备份 3 个");
+        Assert.Contains(statuses, item =>
+            item.DeviceId == "phone-2" && !item.IsOnline && item.DisplayText == "手机2 · 今日备份 2 个");
     }
 
     [Fact]

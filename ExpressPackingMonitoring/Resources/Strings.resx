@@ -599,4 +599,9 @@
   <data name="安装订单联动" xml:space="preserve"><value>Install order integration</value></data>
   <data name="发送测试订单" xml:space="preserve"><value>Send test order</value></data>
   <data name="向当前在线的全部录像设备发送测试订单" xml:space="preserve"><value>Send a test order to all recording devices currently online</value></data>
+  <data name="集中保存手机录像，并提供局域网回放和订单联动" xml:space="preserve"><value>Store phone recordings and provide LAN playback and order integration</value></data>
+  <data name="正在获取电脑名称和局域网地址" xml:space="preserve"><value>Getting the computer name and LAN address</value></data>
+  <data name="今日备份" xml:space="preserve"><value>Backed up today</value></data>
+  <data name="累计备份" xml:space="preserve"><value>Total backups</value></data>
+  <data name="个" xml:space="preserve"><value> recordings</value></data>
 </root>
