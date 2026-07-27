@@ -102,14 +102,14 @@
                             Height="38"
                             Padding="12,0"
                             Style="{DynamicResource PrimaryButtonStyle}"
-                            ToolTip="在浏览器中打开主机录像回放页面"
+                            ToolTip="在浏览器中打开主机网页回放"
                             Margin="0,0,10,10"
                             Click="OpenWeb_Click">
                         <StackPanel Orientation="Horizontal">
-                            <Path Data="{StaticResource FluentOpenIcon}"
+                            <Path Data="{StaticResource FluentPlayIcon}"
                                   Width="16" Height="16" Stretch="Uniform"
                                   Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                            <TextBlock Text="打开录像网页" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="打开网页回放" Margin="6,0,0,0" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
                     <Button Style="{StaticResource ViewerActionButtonStyle}"
@@ -156,7 +156,7 @@
                             Margin="0,0,10,10"
                             Click="SendTestOrder_Click">
                         <StackPanel Orientation="Horizontal">
-                            <Path Data="{StaticResource FluentPlayIcon}"
+                            <Path Data="{StaticResource FluentBroadcastIcon}"
                                   Width="16" Height="16" Stretch="Uniform"
                                   Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
                             <TextBlock x:Name="SendTestOrderButtonText"

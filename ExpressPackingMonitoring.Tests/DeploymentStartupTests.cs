@@ -137,11 +137,11 @@ public sealed class DeploymentStartupTests
         foreach (string icon in new[]
         {
             "FluentArrowSwapIcon",
-            "FluentOpenIcon",
             "FluentSearchIcon",
             "FluentArrowSyncIcon",
             "FluentLinkIcon",
             "FluentPlayIcon",
+            "FluentBroadcastIcon",
             "FluentCheckIcon"
         })
         {
@@ -152,6 +152,62 @@ public sealed class DeploymentStartupTests
         Assert.Contains("x:Name=\"SendTestOrderButtonText\"", xaml, StringComparison.Ordinal);
         Assert.Contains("UserscriptButtonText.Text = status.ButtonText", source, StringComparison.Ordinal);
         Assert.Contains("SendTestOrderButtonText.Text = \"正在发送\"", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DeploymentWindowsUseConsistentIconsForSharedActions()
+    {
+        string recordingXaml = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "UI",
+            "MainWindow.xaml");
+        string viewerXaml = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "Workstations",
+            "ViewerClientWindow.xaml");
+        string mobileBackupXaml = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "Workstations",
+            "PrintWorkstationWindow.xaml");
+
+        foreach (string xaml in new[] { recordingXaml, viewerXaml, mobileBackupXaml })
+        {
+            Assert.Contains("StaticResource FluentArrowSwapIcon", xaml, StringComparison.Ordinal);
+            Assert.Contains("StaticResource FluentLinkIcon", xaml, StringComparison.Ordinal);
+            Assert.Contains("StaticResource FluentBroadcastIcon", xaml, StringComparison.Ordinal);
+        }
+
+        Assert.Matches(
+            "x:Name=\"BtnMobileConnection\"[\\s\\S]*?StaticResource FluentPhoneIcon",
+            recordingXaml);
+        Assert.Matches(
+            "x:Name=\"ConnectPhoneButton\"[\\s\\S]*?StaticResource FluentPhoneIcon",
+            mobileBackupXaml);
+        Assert.Matches(
+            "x:Name=\"OpenWebButton\"[\\s\\S]*?StaticResource FluentPlayIcon",
+            viewerXaml);
+        Assert.Matches(
+            "x:Name=\"OpenWebButton\"[\\s\\S]*?StaticResource FluentPlayIcon",
+            mobileBackupXaml);
+        Assert.Matches(
+            "x:Name=\"BtnSendTestOrder\"[\\s\\S]*?StaticResource FluentBroadcastIcon",
+            recordingXaml);
+        Assert.Matches(
+            "x:Name=\"SendTestOrderButton\"[\\s\\S]*?StaticResource FluentBroadcastIcon",
+            viewerXaml);
+        Assert.Matches(
+            "x:Name=\"SendTestOrderButton\"[\\s\\S]*?StaticResource FluentBroadcastIcon",
+            mobileBackupXaml);
+
+        foreach (string xaml in new[] { recordingXaml, mobileBackupXaml })
+        {
+            Assert.Contains("StaticResource FluentDataIcon", xaml, StringComparison.Ordinal);
+            Assert.Contains("StaticResource FluentVideoIcon", xaml, StringComparison.Ordinal);
+            Assert.Contains("StaticResource FluentSettingsIcon", xaml, StringComparison.Ordinal);
+        }
+
+        Assert.Contains("Text=\"打开网页回放\"", viewerXaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("打开录像网页", viewerXaml, StringComparison.Ordinal);
     }
 
     [Fact]

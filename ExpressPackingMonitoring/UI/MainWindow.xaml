@@ -740,7 +740,7 @@
                                         ToolTip="{Binding WorkstationStatusToolTip}"
                                         Focusable="False">
                                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" IsHitTestVisible="False">
-                                        <Path Data="{StaticResource FluentWifiIcon}" Width="14" Height="14" Stretch="Uniform" Fill="White"/>
+                                        <Path Data="{StaticResource FluentPhoneIcon}" Width="14" Height="14" Stretch="Uniform" Fill="White"/>
                                         <TextBlock Text="连接手机" Margin="5,0,0,0" FontSize="12" Foreground="White" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
@@ -766,7 +766,7 @@
                                         ToolTip="向当前在线的全部录像设备发送测试订单"
                                         Focusable="False">
                                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" IsHitTestVisible="False">
-                                        <Path Data="{StaticResource FluentPlayIcon}" Width="14" Height="14" Stretch="Uniform" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                                        <Path Data="{StaticResource FluentBroadcastIcon}" Width="14" Height="14" Stretch="Uniform" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
                                         <TextBlock x:Name="SendTestOrderButtonText" Text="发送测试订单" Margin="5,0,0,0" FontSize="12" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
