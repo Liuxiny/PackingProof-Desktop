@@ -28,30 +28,33 @@ public sealed class ReleasePackagingPolicyTests
     }
 
     [Fact]
-    public void AppPatch_IncludesDoubleClickInstallerAndIntegrityChecks()
+    public void Packaging_SeparatesAutomaticPatchAndManualUpdatePackage()
     {
         string repositoryRoot = FindRepositoryRoot();
         string publishScript = File.ReadAllText(
             Path.Combine(repositoryRoot, "Tools", "Publish-CleanPackage.ps1"),
             Encoding.UTF8);
-        string installerScript = File.ReadAllText(
-            Path.Combine(repositoryRoot, "Tools", "Apply-AppPatch.ps1"),
+        string stagingScript = File.ReadAllText(
+            Path.Combine(repositoryRoot, "Tools", "Stage-AppPatch.ps1"),
             Encoding.UTF8);
         string installerCmd = File.ReadAllText(
             Path.Combine(repositoryRoot, "Tools", "Install-AppPatch.cmd"),
             Encoding.UTF8);
 
-        Assert.Contains("双击安装增量更新.cmd", publishScript);
-        Assert.Contains("apply_app_patch.ps1", publishScript);
-        Assert.Contains("增量更新说明.txt", publishScript);
-        Assert.Contains("AppRootDirectory", installerScript);
-        Assert.Contains("Request-AppRootDirectory", installerScript);
-        Assert.Contains("完整包根目录、app 目录", installerScript);
-        Assert.Contains("WScript.Shell", installerScript);
-        Assert.Contains("Shell.Application", installerScript);
-        Assert.Contains("Get-FileSha256", installerScript);
-        Assert.Contains("System.Security.Cryptography.SHA256", installerScript);
-        Assert.Contains("[System.IO.File]::Replace", installerScript);
+        Assert.Contains("ExpressPackingMonitoring_ManualUpdate_", publishScript);
+        Assert.Contains("双击准备增量更新.cmd", publishScript);
+        Assert.Contains("stage_app_patch.ps1", publishScript);
+        Assert.Contains("手动增量更新说明.txt", publishScript);
+        Assert.Contains("此文件由软件自动更新使用.txt", publishScript);
+        Assert.Contains("update_manifest.json", publishScript);
+        Assert.Contains("Get-FileSha256", stagingScript);
+        Assert.Contains("System.Security.Cryptography.SHA256", stagingScript);
+        Assert.Contains(@"cache\updates", stagingScript);
+        Assert.Contains("pending", stagingScript);
+        Assert.DoesNotContain("AppRootDirectory", stagingScript);
+        Assert.DoesNotContain("config.json", stagingScript);
+        Assert.DoesNotContain("Resolve-AppRootCandidate", stagingScript);
+        Assert.Contains("stage_app_patch.ps1", installerCmd);
         Assert.Contains("powershell.exe", installerCmd);
         Assert.DoesNotContain("taskkill", installerCmd, StringComparison.OrdinalIgnoreCase);
     }

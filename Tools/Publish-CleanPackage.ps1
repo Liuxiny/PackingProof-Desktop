@@ -27,10 +27,11 @@ $releaseValidationScript = Join-Path $repoRoot "Tools\Test-Release.ps1"
 $installerBuildScript = Join-Path $repoRoot "Tools\Build-Installer.ps1"
 $ttsCacheBuilderProject = Join-Path $repoRoot "Tools\ExpressPackingMonitoring.TtsCacheBuilder\ExpressPackingMonitoring.TtsCacheBuilder.csproj"
 $manualPatchCmdSource = Join-Path $repoRoot "Tools\Install-AppPatch.cmd"
-$manualPatchScriptSource = Join-Path $repoRoot "Tools\Apply-AppPatch.ps1"
-$manualInstallerCmdName = "双击安装增量更新.cmd"
-$manualInstallerScriptName = "apply_app_patch.ps1"
-$manualInstallerNoticeName = "增量更新说明.txt"
+$manualPatchScriptSource = Join-Path $repoRoot "Tools\Stage-AppPatch.ps1"
+$manualInstallerCmdName = "双击准备增量更新.cmd"
+$manualInstallerScriptName = "stage_app_patch.ps1"
+$manualInstallerNoticeName = "手动增量更新说明.txt"
+$automaticPatchNoticeName = "此文件由软件自动更新使用.txt"
 
 function Invoke-CoreRegressionTests {
     if (-not (Test-Path $releaseValidationScript)) {
@@ -575,9 +576,7 @@ function New-AppPatchPackage {
         [string]$BaselineDir,
         [string]$PatchZipPath,
         [string]$BaselineVersion,
-        [string]$LatestVersion,
-        [string]$ManualInstallerCmdPath,
-        [string]$ManualInstallerScriptPath
+        [string]$LatestVersion
     )
 
     if (-not (Test-Path $BaselineDir)) {
@@ -633,32 +632,73 @@ function New-AppPatchPackage {
         ConvertTo-Json -Depth 6 |
         Set-Content -LiteralPath (Join-Path $patchWorkDir "patch_manifest.json") -Encoding UTF8
 
-    if (-not (Test-Path -LiteralPath $ManualInstallerCmdPath -PathType Leaf)) {
-        throw "Manual AppPatch CMD installer not found: $ManualInstallerCmdPath"
-    }
-    if (-not (Test-Path -LiteralPath $ManualInstallerScriptPath -PathType Leaf)) {
-        throw "Manual AppPatch PowerShell installer not found: $ManualInstallerScriptPath"
-    }
-
-    Copy-Item -LiteralPath $ManualInstallerCmdPath -Destination (Join-Path $patchWorkDir $manualInstallerCmdName) -Force
-    Copy-Item -LiteralPath $ManualInstallerScriptPath -Destination (Join-Path $patchWorkDir $manualInstallerScriptName) -Force
-
-    $manualInstallerNotice = @(
-        "快递打包监控增量更新说明"
+    $automaticPatchNotice = @(
+        "快递打包监控自动更新补丁"
         ""
-        "1. 请先完整解压增量更新包，不要直接在压缩软件中运行脚本。"
-        "2. 双击《$manualInstallerCmdName》。"
-        "3. 脚本会从 config.json 读取原 app 目录，校验补丁并请求正在运行的软件正常退出。"
-        "4. 更新成功后，请从原来的根目录 ExpressPackingMonitoring.exe 启动软件。"
+        "此 AppPatch 文件由软件启动器自动下载和安装，普通用户不需要手动解压。"
+        "如需手动更新，请下载《ExpressPackingMonitoring_ManualUpdate_v$LatestVersion.zip》。"
         ""
-        "请勿单独移动 CMD、apply_app_patch.ps1、patch_manifest.json 或 files 文件夹。"
-        "如果脚本无法自动定位软件，请把完整包根目录、app 目录或 ExpressPackingMonitoring.exe 拖到窗口中。"
-        "脚本会自动识别实际 app 目录并判断当前版本是否适用此增量包。"
+        "如果已经误下载此文件，请返回发布页面下载文件名包含 ManualUpdate 的手动更新包。"
     ) -join [Environment]::NewLine
-    Set-Content -LiteralPath (Join-Path $patchWorkDir $manualInstallerNoticeName) -Value $manualInstallerNotice -Encoding UTF8
+    Set-Content -LiteralPath (Join-Path $patchWorkDir $automaticPatchNoticeName) -Value $automaticPatchNotice -Encoding UTF8
 
     Compress-PackageWithRetry -SourceDir $patchWorkDir -DestinationZip $PatchZipPath
     Remove-Item -LiteralPath $patchWorkDir -Recurse -Force
+}
+
+function New-ManualUpdatePackage {
+    param(
+        [string]$PatchZipPath,
+        [string]$UpdateManifestPath,
+        [string]$OutputZipPath,
+        [string]$LatestVersion,
+        [string]$ManualInstallerCmdPath,
+        [string]$ManualInstallerScriptPath
+    )
+
+    foreach ($requiredFile in @($PatchZipPath, $UpdateManifestPath, $ManualInstallerCmdPath, $ManualInstallerScriptPath)) {
+        if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
+            throw "Manual update source file not found: $requiredFile"
+        }
+    }
+
+    $manualWorkDir = Join-Path (
+        [System.IO.Path]::GetDirectoryName($OutputZipPath)) (
+        "_manual_update_work_" + [System.IO.Path]::GetFileNameWithoutExtension($OutputZipPath))
+    if (Test-Path -LiteralPath $manualWorkDir) {
+        Remove-Item -LiteralPath $manualWorkDir -Recurse -Force
+    }
+    if (Test-Path -LiteralPath $OutputZipPath) {
+        Remove-Item -LiteralPath $OutputZipPath -Force
+    }
+    New-Item -ItemType Directory -Force -Path $manualWorkDir | Out-Null
+
+    try {
+        Copy-Item -LiteralPath $PatchZipPath -Destination (Join-Path $manualWorkDir (Split-Path -Leaf $PatchZipPath)) -Force
+        Copy-Item -LiteralPath $UpdateManifestPath -Destination (Join-Path $manualWorkDir "update_manifest.json") -Force
+        Copy-Item -LiteralPath $ManualInstallerCmdPath -Destination (Join-Path $manualWorkDir $manualInstallerCmdName) -Force
+        Copy-Item -LiteralPath $ManualInstallerScriptPath -Destination (Join-Path $manualWorkDir $manualInstallerScriptName) -Force
+
+        $manualInstallerNotice = @(
+            "快递打包监控手动增量更新"
+            ""
+            "1. 请完整解压此 ManualUpdate 文件，不要直接在压缩软件中运行脚本。"
+            "2. 双击《$manualInstallerCmdName》。"
+            "3. 脚本会校验内层 AppPatch，并将其放入启动器更新缓存。"
+            "4. 准备完成后，请关闭并从原来的入口重新打开软件，启动器会在启动前完成安装。"
+            ""
+            "此流程不读取 config.json，不需要选择软件安装目录，也不会直接中断正在进行的录像或手机备份。"
+            "请勿单独移动 CMD、$manualInstallerScriptName、update_manifest.json 或内层 AppPatch ZIP。"
+        ) -join [Environment]::NewLine
+        Set-Content -LiteralPath (Join-Path $manualWorkDir $manualInstallerNoticeName) -Value $manualInstallerNotice -Encoding UTF8
+
+        Compress-PackageWithRetry -SourceDir $manualWorkDir -DestinationZip $OutputZipPath
+    }
+    finally {
+        if (Test-Path -LiteralPath $manualWorkDir) {
+            Remove-Item -LiteralPath $manualWorkDir -Recurse -Force
+        }
+    }
 }
 
 $appPublishDir = Join-Path $outputFullPath "app"
@@ -745,6 +785,8 @@ $packageRoot = $packageArtifactRoot
 $legacyAppFullZipPath = Join-Path $packageRoot "ExpressPackingMonitoring_AppFull_$releaseTag.zip"
 $appPatchZipName = "ExpressPackingMonitoring_AppPatch_$releaseTag.zip"
 $appPatchZipPath = Join-Path $packageRoot $appPatchZipName
+$manualUpdateZipName = "ExpressPackingMonitoring_ManualUpdate_$releaseTag.zip"
+$manualUpdateZipPath = Join-Path $packageRoot $manualUpdateZipName
 $updateJsonName = "update_$releaseTag.json"
 $updateJsonPath = Join-Path $packageRoot $updateJsonName
 $launcherManifestName = "launcher_manifest_$releaseTag.json"
@@ -858,17 +900,13 @@ else {
         -BaselineDir ([System.IO.Path]::GetFullPath($BaselineAppDir)) `
         -PatchZipPath $appPatchZipPath `
         -BaselineVersion $normalizedPatchBaselineVersion `
-        -LatestVersion $normalizedVersion `
-        -ManualInstallerCmdPath $manualPatchCmdSource `
-        -ManualInstallerScriptPath $manualPatchScriptSource
+        -LatestVersion $normalizedVersion
 
     if (-not (Test-ZipContainsEntry -ZipFile $appPatchZipPath -EntryName "patch_manifest.json")) {
         throw "AppPatch package validation failed: missing patch_manifest.json"
     }
-    foreach ($manualInstallerEntry in @($manualInstallerCmdName, $manualInstallerScriptName, $manualInstallerNoticeName)) {
-        if (-not (Test-ZipContainsEntry -ZipFile $appPatchZipPath -EntryName $manualInstallerEntry)) {
-            throw "AppPatch package validation failed: missing $manualInstallerEntry"
-        }
+    if (-not (Test-ZipContainsEntry -ZipFile $appPatchZipPath -EntryName $automaticPatchNoticeName)) {
+        throw "AppPatch package validation failed: missing $automaticPatchNoticeName"
     }
     foreach ($runtimeFile in $requiredAppRuntimeFiles) {
         $baselineRuntimeFile = Join-Path ([System.IO.Path]::GetFullPath($BaselineAppDir)) $runtimeFile
@@ -905,7 +943,7 @@ if ($patchSupported) {
     $updateManifest["patch_package"] = $patchPackageInfo
     $updateManifest["notes"] = @(
         (ConvertFrom-Utf8Base64 "6K+35aGr5YaZ5pu05paw5YaF5a65")
-        "启动器会自动安装增量更新；手动下载时请完整解压，并双击《$manualInstallerCmdName》"
+        "启动器会自动下载 AppPatch；手动更新请下载《$manualUpdateZipName》，不要手动下载 AppPatch"
         "首次安装建议从完整下载页获取《$setupFileName》；完整 7z 是小体积免安装包，ZIP 用于系统原生解压和故障恢复"
     )
 }
@@ -921,6 +959,30 @@ $updateManifest["full_download_page"] = $fullDownloadPage
 $updateManifest |
     ConvertTo-Json -Depth 6 |
     Set-Content -LiteralPath $updateJsonPath -Encoding UTF8
+
+if ($patchSupported) {
+    New-ManualUpdatePackage `
+        -PatchZipPath $appPatchZipPath `
+        -UpdateManifestPath $updateJsonPath `
+        -OutputZipPath $manualUpdateZipPath `
+        -LatestVersion $normalizedVersion `
+        -ManualInstallerCmdPath $manualPatchCmdSource `
+        -ManualInstallerScriptPath $manualPatchScriptSource
+
+    foreach ($manualEntry in @(
+        $appPatchZipName,
+        "update_manifest.json",
+        $manualInstallerCmdName,
+        $manualInstallerScriptName,
+        $manualInstallerNoticeName)) {
+        if (-not (Test-ZipContainsEntry -ZipFile $manualUpdateZipPath -EntryName $manualEntry)) {
+            throw "ManualUpdate package validation failed: missing $manualEntry"
+        }
+    }
+}
+elseif (Test-Path -LiteralPath $manualUpdateZipPath) {
+    Remove-Item -LiteralPath $manualUpdateZipPath -Force
+}
 
 $zipParent = Split-Path -Parent $zipFullPath
 if (-not [string]::IsNullOrWhiteSpace($zipParent)) {
@@ -973,12 +1035,25 @@ $releaseInfoLines += "GitHub 默认上传："
 $releaseInfoLines += "1. Windows 安装向导（推荐）：" + $setupFileName
 $releaseInfoLines += "2. 完整包 7z（小体积免安装）：" + (Split-Path -Leaf $sevenZipFullPath)
 $releaseInfoLines += "3. 完整包 ZIP（系统原生解压/故障恢复）：" + (Split-Path -Leaf $zipFullPath)
-$releaseInfoLines += "4. " + (ConvertFrom-Utf8Base64 "QXBwUGF0Y2gg5YyF77ya") + $patchReleaseInfo
-$releaseInfoLines += (ConvertFrom-Utf8Base64 "NS4g5pu05paw5o+P6L+w5paH5Lu277ya") + $updateJsonName
+if ($patchSupported) {
+    $releaseInfoLines += "4. 手动增量更新（普通用户手动下载）：" + $manualUpdateZipName
+    $releaseInfoLines += "5. AppPatch（仅供启动器自动下载）：" + $patchReleaseInfo
+    $releaseInfoLines += "6. " + (ConvertFrom-Utf8Base64 "5pu05paw5o+P6L+w5paH5Lu277ya") + $updateJsonName
+}
+else {
+    $releaseInfoLines += "4. 本版本不提供增量包：" + $patchReason
+    $releaseInfoLines += "5. " + (ConvertFrom-Utf8Base64 "5pu05paw5o+P6L+w5paH5Lu277ya") + $updateJsonName
+}
 $releaseInfoLines += ""
 $releaseInfoLines += "Gitee 手工上传："
-$releaseInfoLines += "1. " + (ConvertFrom-Utf8Base64 "QXBwUGF0Y2gg5YyF77ya") + $patchReleaseInfo
-$releaseInfoLines += (ConvertFrom-Utf8Base64 "Mi4g5pu05paw5o+P6L+w5paH5Lu277ya") + $updateJsonName
+if ($patchSupported) {
+    $releaseInfoLines += "1. 手动增量更新（普通用户手动下载）：" + $manualUpdateZipName
+    $releaseInfoLines += "2. AppPatch（仅供启动器自动下载）：" + $patchReleaseInfo
+    $releaseInfoLines += "3. " + (ConvertFrom-Utf8Base64 "5pu05paw5o+P6L+w5paH5Lu277ya") + $updateJsonName
+}
+else {
+    $releaseInfoLines += "1. " + (ConvertFrom-Utf8Base64 "5pu05paw5o+P6L+w5paH5Lu277ya") + $updateJsonName
+}
 $releaseInfoLines += "Setup、完整 7z 和完整 ZIP 使用 Full download page，不上传到 Gitee"
 $releaseInfoLines += "Local verification only (do not upload by default): " + $launcherManifestName
 $releaseInfoLines += ""
@@ -1010,8 +1085,8 @@ if ($patchSupported) {
     $releaseInfoLines += "AppPatch size:"
     $releaseInfoLines += "$appPatchSize bytes"
     $releaseInfoLines += ""
-    $releaseInfoLines += "Manual AppPatch installer:"
-    $releaseInfoLines += $manualInstallerCmdName
+    $releaseInfoLines += "Manual update package:"
+    $releaseInfoLines += $manualUpdateZipName
 }
 $releaseInfo = $releaseInfoLines -join [Environment]::NewLine
 $releaseInfo | Set-Content -LiteralPath $releaseInfoPath -Encoding UTF8
@@ -1022,6 +1097,7 @@ Write-Host "7z package created: $sevenZipFullPath"
 Write-Host "Zip package created: $zipFullPath"
 if ($patchSupported) {
     Write-Host "AppPatch package created: $appPatchZipPath"
+    Write-Host "Manual update package created: $manualUpdateZipPath"
 }
 else {
     Write-Host "AppPatch package skipped: $patchReason"
