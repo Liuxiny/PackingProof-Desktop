@@ -13,6 +13,14 @@ namespace ExpressPackingMonitoring.Tests;
 public sealed class HostDiscoveryTests
 {
     [Fact]
+    public void LanDiscoveryDoesNotUseTheSystemProxy()
+    {
+        using SocketsHttpHandler handler = WorkstationNetwork.CreateLanHttpMessageHandler();
+
+        Assert.False(handler.UseProxy);
+    }
+
+    [Fact]
     public async Task NodeInfoApiReturnsStablePublicHostIdentityWithoutSecrets()
     {
         string directory = Path.Combine(Path.GetTempPath(), $"epm-node-info-{Guid.NewGuid():N}");
@@ -48,6 +56,46 @@ public sealed class HostDiscoveryTests
             Assert.Contains(PackingProofCapabilities.Host, node.Capabilities);
             Assert.DoesNotContain("secret-web-access-key", body, StringComparison.Ordinal);
             Assert.DoesNotContain("accessKey", body, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            try { Directory.Delete(directory, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task DiscoveryFindsAnIsolatedLocalPackingProofHost()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"epm-host-discovery-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        int port = GetFreeTcpPort();
+        string nodeId = Guid.NewGuid().ToString("D");
+        try
+        {
+            using var database = new VideoDatabase(Path.Combine(directory, "videos.db"));
+            using var server = new WebServer(
+                database,
+                port,
+                listenerHost: "127.0.0.1",
+                mobileBackupComputerId: Guid.NewGuid().ToString("D"),
+                mobileBackupStateDirectory: Path.Combine(directory, "uploads"),
+                mobileBackupRecordingRootResolver: () => Path.Combine(directory, "recordings"),
+                nodeId: nodeId,
+                nodeName: "本地发现测试主机",
+                deploymentPreset: DeploymentPresets.MobileBackupHost);
+            server.Start();
+
+            IReadOnlyList<PackingProofNodeInfo> hosts = await WorkstationNetwork.DiscoverHostsAsync(
+                null,
+                [$"127.0.0.1:{port}"],
+                WorkstationNetwork.GetNodeInfoAsync,
+                token: TestContext.Current.CancellationToken);
+
+            PackingProofNodeInfo host = Assert.Single(hosts);
+            Assert.Equal(nodeId, host.NodeId);
+            Assert.Equal("本地发现测试主机", host.NodeName);
+            Assert.Equal($"http://127.0.0.1:{port}", host.Address);
         }
         finally
         {
@@ -132,6 +180,39 @@ public sealed class HostDiscoveryTests
 
         Assert.Single(hosts);
         Assert.Equal("http://192.168.1.20:5280", hosts[0].Address);
+    }
+
+    [Fact]
+    public void DiscoveryUsesConfiguredAndDefaultHostPorts()
+    {
+        Assert.Equal([5300, 5280], WorkstationNetwork.GetDiscoveryPorts(5300));
+        Assert.Equal([5280], WorkstationNetwork.GetDiscoveryPorts(5280));
+    }
+
+    [Fact]
+    public void DiscoveryUsesTheActualIpv4SubnetInsteadOfOnlyTheLocalSlash24()
+    {
+        IReadOnlyList<IPAddress> addresses = WorkstationNetwork.EnumerateSubnetAddresses(
+            IPAddress.Parse("192.168.30.10"),
+            IPAddress.Parse("255.255.254.0"));
+
+        Assert.Contains(IPAddress.Parse("192.168.31.250"), addresses);
+        Assert.DoesNotContain(IPAddress.Parse("192.168.30.0"), addresses);
+        Assert.DoesNotContain(IPAddress.Parse("192.168.31.255"), addresses);
+        Assert.Equal(510, addresses.Count);
+    }
+
+    [Fact]
+    public void BroadSubnetsUseABoundedLocalScanRange()
+    {
+        IReadOnlyList<IPAddress> addresses = WorkstationNetwork.EnumerateSubnetAddresses(
+            IPAddress.Parse("10.20.30.40"),
+            IPAddress.Parse("255.255.0.0"));
+
+        Assert.Equal(254, addresses.Count);
+        Assert.Contains(IPAddress.Parse("10.20.30.1"), addresses);
+        Assert.Contains(IPAddress.Parse("10.20.30.254"), addresses);
+        Assert.DoesNotContain(IPAddress.Parse("10.20.31.1"), addresses);
     }
 
     private static async Task<PackingProofNodeInfo?> IgnoreTimeoutAsync(CancellationToken token)

@@ -246,16 +246,24 @@ public static class WorkstationConfigStore
 
 public static class WorkstationNetwork
 {
+    private const int DefaultHttpPort = 5280;
+    private const int MaxSubnetDiscoveryHosts = 1022;
     private sealed record PendingRestart(string ExecutablePath, string WorkingDirectory, string Reason);
 
-    private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromMilliseconds(800) };
-    private static readonly HttpClient TestOrderClient = new() { Timeout = TimeSpan.FromSeconds(3) };
+    private static readonly HttpClient Client = CreateLanHttpClient(TimeSpan.FromMilliseconds(800));
+    private static readonly HttpClient TestOrderClient = CreateLanHttpClient(TimeSpan.FromSeconds(3));
     private static readonly JsonSerializerOptions NetworkJsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
     };
     private static readonly object RestartLock = new();
     private static PendingRestart? _pendingRestart;
+
+    private static HttpClient CreateLanHttpClient(TimeSpan timeout) =>
+        new(CreateLanHttpMessageHandler()) { Timeout = timeout };
+
+    internal static SocketsHttpHandler CreateLanHttpMessageHandler() =>
+        new() { UseProxy = false };
 
     public static string NormalizeAddress(string input, int defaultPort = 5280)
     {
@@ -589,9 +597,9 @@ public static class WorkstationNetwork
         IProgress<string>? progress = null,
         CancellationToken token = default)
     {
-        IEnumerable<string> candidates = GetLocalIpv4Prefixes()
+        IEnumerable<string> candidates = GetLocalIpv4ScanAddresses()
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .SelectMany(prefix => Enumerable.Range(1, 254).Select(index => $"{prefix}.{index}:{port}"));
+            .SelectMany(address => GetDiscoveryPorts(port).Select(discoveryPort => $"{address}:{discoveryPort}"));
         return DiscoverHostsAsync(lastKnownAddress, candidates, GetNodeInfoAsync, progress, token);
     }
 
@@ -880,17 +888,84 @@ public static class WorkstationNetwork
         return false;
     }
 
-    private static IEnumerable<string> GetLocalIpv4Prefixes()
+    internal static IReadOnlyList<int> GetDiscoveryPorts(int configuredPort)
+    {
+        var ports = new List<int>(2);
+        if (configuredPort is > 0 and <= 65535)
+            ports.Add(configuredPort);
+        if (!ports.Contains(DefaultHttpPort))
+            ports.Add(DefaultHttpPort);
+        return ports;
+    }
+
+    private static IEnumerable<string> GetLocalIpv4ScanAddresses()
     {
         foreach (var candidate in GetLocalNetworkCandidates())
         {
-            var parts = candidate.Address.ToString().Split('.');
-            if (parts.Length == 4)
-                yield return $"{parts[0]}.{parts[1]}.{parts[2]}";
+            foreach (IPAddress address in EnumerateSubnetAddresses(candidate.Address, candidate.IPv4Mask))
+                yield return address.ToString();
         }
     }
 
-    private sealed record LocalNetworkCandidate(IPAddress Address, NetworkInterface Interface, bool HasGateway, int Score);
+    internal static IReadOnlyList<IPAddress> EnumerateSubnetAddresses(
+        IPAddress address,
+        IPAddress? subnetMask)
+    {
+        ArgumentNullException.ThrowIfNull(address);
+        byte[] addressBytes = address.GetAddressBytes();
+        byte[]? maskBytes = subnetMask?.GetAddressBytes();
+        if (addressBytes.Length != 4)
+            return [];
+        if (maskBytes?.Length != 4 || !IsContiguousSubnetMask(maskBytes))
+            maskBytes = [255, 255, 255, 0];
+
+        uint addressValue = ToUInt32(addressBytes);
+        uint maskValue = ToUInt32(maskBytes);
+        uint network = addressValue & maskValue;
+        uint broadcast = network | ~maskValue;
+        ulong hostCount = broadcast > network ? (ulong)broadcast - network - 1 : 0;
+        if (hostCount > MaxSubnetDiscoveryHosts)
+        {
+            maskValue = 0xffffff00;
+            network = addressValue & maskValue;
+            broadcast = network | ~maskValue;
+            hostCount = broadcast > network ? (ulong)broadcast - network - 1 : 0;
+        }
+
+        var result = new List<IPAddress>((int)hostCount);
+        for (uint value = network + 1; value < broadcast; value++)
+            result.Add(FromUInt32(value));
+        return result;
+    }
+
+    private static bool IsContiguousSubnetMask(byte[] bytes)
+    {
+        uint mask = ToUInt32(bytes);
+        uint inverted = ~mask;
+        return (inverted & (inverted + 1)) == 0;
+    }
+
+    private static uint ToUInt32(byte[] bytes) =>
+        ((uint)bytes[0] << 24) |
+        ((uint)bytes[1] << 16) |
+        ((uint)bytes[2] << 8) |
+        bytes[3];
+
+    private static IPAddress FromUInt32(uint value) =>
+        new(
+        [
+            (byte)(value >> 24),
+            (byte)(value >> 16),
+            (byte)(value >> 8),
+            (byte)value
+        ]);
+
+    private sealed record LocalNetworkCandidate(
+        IPAddress Address,
+        IPAddress? IPv4Mask,
+        NetworkInterface Interface,
+        bool HasGateway,
+        int Score);
 
     private static IEnumerable<LocalNetworkCandidate> GetLocalNetworkCandidates()
     {
@@ -920,7 +995,7 @@ public static class WorkstationNetwork
                 if (addr.IPv4Mask != null && addr.IPv4Mask.ToString() == "255.255.255.0")
                     score += 5;
 
-                candidates.Add(new LocalNetworkCandidate(addr.Address, nic, hasGateway, score));
+                candidates.Add(new LocalNetworkCandidate(addr.Address, addr.IPv4Mask, nic, hasGateway, score));
             }
         }
 
