@@ -173,7 +173,7 @@ public sealed class DeploymentStartupTests
         foreach (string xaml in new[] { recordingXaml, viewerXaml, mobileBackupXaml })
         {
             Assert.Contains("StaticResource FluentArrowSwapIcon", xaml, StringComparison.Ordinal);
-            Assert.Contains("StaticResource FluentLinkIcon", xaml, StringComparison.Ordinal);
+            Assert.Contains("StaticResource FluentIntegrationIcon", xaml, StringComparison.Ordinal);
             Assert.Contains("StaticResource FluentBroadcastIcon", xaml, StringComparison.Ordinal);
         }
 

@@ -753,7 +753,7 @@
                                         ToolTip="安装或更新快递助手订单联动脚本"
                                         Focusable="False">
                                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" IsHitTestVisible="False">
-                                        <Path Data="{StaticResource FluentLinkIcon}" Width="14" Height="14" Stretch="Uniform" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                                        <Path Data="{StaticResource FluentIntegrationIcon}" Width="14" Height="14" Stretch="Uniform" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
                                         <TextBlock Text="{Binding UserscriptButtonText}" Margin="5,0,0,0" FontSize="12" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>

@@ -199,7 +199,7 @@
                                 ToolTip="安装或更新快递助手订单联动脚本"
                                 Click="InstallTool_Click">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                <Path Data="{StaticResource FluentLinkIcon}"
+                                <Path Data="{StaticResource FluentIntegrationIcon}"
                                       Width="16" Height="16" Stretch="Uniform"
                                       Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
                                 <TextBlock x:Name="InstallUserscriptButtonText"
