@@ -53,7 +53,9 @@ public sealed class NoCameraWorkstationTests
 
         Assert.Contains("PackingProof 手机备份主机", xaml, StringComparison.Ordinal);
         Assert.Contains("Text=\"连接手机\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("x:Name=\"HostIdentityTextBlock\"", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("x:Name=\"HostIdentityTextBlock\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("StatusTextBlock.Text = GetHostName();", source, StringComparison.Ordinal);
+        Assert.Contains("StatusHintTextBlock.Text = title;", source, StringComparison.Ordinal);
         Assert.Contains("x:Name=\"TodayBackupCountTextBlock\"", xaml, StringComparison.Ordinal);
         Assert.Contains("x:Name=\"TotalBackupCountTextBlock\"", xaml, StringComparison.Ordinal);
         Assert.DoesNotContain("x:Name=\"LanAddressTextBlock\"", xaml, StringComparison.Ordinal);

@@ -175,7 +175,6 @@ public partial class PrintWorkstationWindow : Window
 
     private void RefreshServiceDisplay()
     {
-        HostIdentityTextBlock.Text = GetHostName();
         RefreshDeviceSummary();
         if (_host.IsLanAvailable)
         {
@@ -203,10 +202,10 @@ public partial class PrintWorkstationWindow : Window
         SendTestOrderButton.IsEnabled = enabled && _host.IsLanAvailable && !_testOrderSending;
     }
 
-    private void SetStatus(string title, string hint, StatusVisual visual = StatusVisual.Neutral)
+    private void SetStatus(string title, string _, StatusVisual visual = StatusVisual.Neutral)
     {
-        StatusTextBlock.Text = title;
-        StatusHintTextBlock.Text = hint;
+        StatusTextBlock.Text = GetHostName();
+        StatusHintTextBlock.Text = title;
 
         string iconKey = visual switch
         {

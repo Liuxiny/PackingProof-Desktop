@@ -97,22 +97,16 @@
                         </Border>
                         <StackPanel Grid.Column="2">
                             <TextBlock x:Name="StatusTextBlock"
-                                       Text="正在启动手机录像备份服务"
+                                       Text="正在获取电脑名称"
                                        FontSize="20"
                                        FontWeight="Bold"
+                                       TextTrimming="CharacterEllipsis"
                                        Foreground="{DynamicResource TextPrimary}"/>
                             <TextBlock x:Name="StatusHintTextBlock"
                                        Margin="0,5,0,0"
-                                       Text="正在打开录像数据库和本机回放服务"
+                                       Text="正在启动手机录像备份服务"
                                        TextWrapping="Wrap"
                                        Foreground="{DynamicResource TextSecondary}"/>
-
-                            <TextBlock x:Name="HostIdentityTextBlock"
-                                       Margin="0,15,0,0"
-                                       Text="正在获取电脑名称"
-                                       FontWeight="SemiBold"
-                                       TextTrimming="CharacterEllipsis"
-                                       Foreground="{DynamicResource TextPrimary}"/>
                             <Button x:Name="RepairLanButton"
                                     Height="28"
                                     Margin="0,8,0,0"
