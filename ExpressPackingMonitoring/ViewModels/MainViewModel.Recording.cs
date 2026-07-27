@@ -2029,7 +2029,12 @@ namespace ExpressPackingMonitoring.ViewModels
                 }
             }
 
-            return ConvertMkvToMp4ForPlayback(filePath);
+            MkvConversionResult result = ConvertMkvToMp4ForPlayback(filePath);
+            if (result.Success)
+                _db?.ClearMkvConversionFailure(filePath);
+            else
+                _db?.RecordMkvConversionFailure(filePath, DateTime.Now, result.ErrorMessage);
+            return result;
         }
 
         private MkvConversionResult ConvertMkvToMp4ForPlayback(string mkvPath, CancellationToken cancellationToken = default)

@@ -1412,9 +1412,13 @@ namespace ExpressPackingMonitoring.UI
 
             try
             {
-                var (success, fail, skip) = await Context.BatchConvertMkvToMp4Async(progress, migrationCts.Token);
+                MkvBatchConversionResult result =
+                    await Context.BatchConvertMkvToMp4Async(progress, migrationCts.Token);
                 if (!_isClosing)
-                    MigrationStatusText.Text = $"合并完成：成功 {success}，失败 {fail}，跳过 {skip}";
+                {
+                    MigrationStatusText.Text =
+                        $"合并完成：成功 {result.SuccessCount}，失败 {result.FailureCount}，跳过 {result.SkippedCount}，长期失败 {result.SuppressedCount}";
+                }
             }
             catch (OperationCanceledException)
             {

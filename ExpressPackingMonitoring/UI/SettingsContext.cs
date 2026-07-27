@@ -1,4 +1,5 @@
 using ExpressPackingMonitoring.Config;
+using ExpressPackingMonitoring.Data;
 using ExpressPackingMonitoring.ViewModels;
 using System.Windows;
 using System.Windows.Input;
@@ -63,7 +64,7 @@ public sealed class SettingsContext
     public Func<bool>? SuspendCameraForSetupWizard { get; init; }
     public Action? ResumeCameraAfterSetupWizard { get; init; }
     public Action<string>? ShowToast { get; init; }
-    public Func<IProgress<string>, CancellationToken, Task<(int success, int fail, int skip)>>? BatchConvertMkvToMp4Async { get; init; }
+    public Func<IProgress<string>, CancellationToken, Task<MkvBatchConversionResult>>? BatchConvertMkvToMp4Async { get; init; }
     public ICommand? ResetEncoderDetectCommand { get; init; }
     public object? ToastSource { get; init; }
 
@@ -82,7 +83,8 @@ public sealed class SettingsContext
             SuspendCameraForSetupWizard = mainViewModel.SuspendCameraForSetupWizard,
             ResumeCameraAfterSetupWizard = mainViewModel.ResumeCameraAfterSetupWizard,
             ShowToast = mainViewModel.ShowToast,
-            BatchConvertMkvToMp4Async = mainViewModel.BatchConvertMkvToMp4Async,
+            BatchConvertMkvToMp4Async = (progress, token) =>
+                mainViewModel.BatchConvertMkvToMp4Async(progress, token, forceRetry: true),
             ResetEncoderDetectCommand = mainViewModel.ResetEncoderDetectCommand,
             ToastSource = mainViewModel
         };

@@ -149,6 +149,11 @@ namespace ExpressPackingMonitoring.Data
                     EndTime TEXT,
                     DurationSeconds REAL DEFAULT 0,
                     StopReason TEXT DEFAULT '',
+                    MkvFirstFailedAt TEXT,
+                    MkvLastAttemptAt TEXT,
+                    MkvFailureCount INTEGER NOT NULL DEFAULT 0,
+                    MkvLastError TEXT DEFAULT '',
+                    MkvLastNotifiedAt TEXT,
                     IsDeleted INTEGER DEFAULT 0,
                     DeletedAt TEXT,
                     DeleteReason TEXT DEFAULT ''
@@ -197,6 +202,11 @@ namespace ExpressPackingMonitoring.Data
             EnsureColumnExists("VideoRecords", "SourceSessionId", "TEXT DEFAULT ''");
             EnsureColumnExists("VideoRecords", "ContentSha256", "TEXT DEFAULT ''");
             EnsureColumnExists("VideoRecords", "BackupCompletedAt", "TEXT");
+            EnsureColumnExists("VideoRecords", "MkvFirstFailedAt", "TEXT");
+            EnsureColumnExists("VideoRecords", "MkvLastAttemptAt", "TEXT");
+            EnsureColumnExists("VideoRecords", "MkvFailureCount", "INTEGER NOT NULL DEFAULT 0");
+            EnsureColumnExists("VideoRecords", "MkvLastError", "TEXT DEFAULT ''");
+            EnsureColumnExists("VideoRecords", "MkvLastNotifiedAt", "TEXT");
             ExecuteNonQuery(@"
                 UPDATE VideoRecords
                 SET BackupCompletedAt = COALESCE(EndTime, StartTime)
@@ -623,12 +633,169 @@ namespace ExpressPackingMonitoring.Data
             lock (_lock)
             {
                 using var cmd = _connection.CreateCommand();
-                cmd.CommandText = "UPDATE VideoRecords SET FilePath = @newPath WHERE FilePath = @oldPath;";
+                cmd.CommandText = @"
+                    UPDATE VideoRecords
+                    SET FilePath = @newPath,
+                        MkvFirstFailedAt = NULL,
+                        MkvLastAttemptAt = NULL,
+                        MkvFailureCount = 0,
+                        MkvLastError = '',
+                        MkvLastNotifiedAt = NULL
+                    WHERE FilePath = @oldPath;";
                 cmd.Parameters.AddWithValue("@oldPath", oldPath);
                 cmd.Parameters.AddWithValue("@newPath", newPath);
                 cmd.ExecuteNonQuery();
             }
         }
+
+        public MkvConversionFailureState GetMkvConversionFailureState(string filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return null;
+
+            (string mkvPath, string mp4Path) = GetMkvAndMp4Paths(filePath);
+            lock (_lock)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.CommandText = @"
+                    SELECT MIN(FilePath),
+                           MIN(MkvFirstFailedAt),
+                           MAX(MkvLastAttemptAt),
+                           MAX(MkvFailureCount),
+                           MAX(MkvLastError),
+                           MAX(MkvLastNotifiedAt)
+                    FROM VideoRecords
+                    WHERE IsDeleted = 0
+                      AND (FilePath = @mkvPath OR FilePath = @mp4Path);";
+                cmd.Parameters.AddWithValue("@mkvPath", mkvPath);
+                cmd.Parameters.AddWithValue("@mp4Path", mp4Path);
+                using var reader = cmd.ExecuteReader();
+                if (!reader.Read() || reader.IsDBNull(0))
+                    return null;
+
+                return new MkvConversionFailureState
+                {
+                    FilePath = reader.GetString(0),
+                    FirstFailedAt = ReadNullableDateTime(reader, 1),
+                    LastAttemptAt = ReadNullableDateTime(reader, 2),
+                    FailureCount = reader.IsDBNull(3) ? 0 : reader.GetInt32(3),
+                    LastError = reader.IsDBNull(4) ? "" : reader.GetString(4),
+                    LastNotifiedAt = ReadNullableDateTime(reader, 5)
+                };
+            }
+        }
+
+        public void RecordMkvConversionFailure(string filePath, DateTime attemptedAt, string error)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return;
+
+            (string mkvPath, string mp4Path) = GetMkvAndMp4Paths(filePath);
+            lock (_lock)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.CommandText = @"
+                    UPDATE VideoRecords
+                    SET MkvFirstFailedAt = COALESCE(MkvFirstFailedAt, @attemptedAt),
+                        MkvLastAttemptAt = @attemptedAt,
+                        MkvFailureCount = COALESCE(MkvFailureCount, 0) + 1,
+                        MkvLastError = @error
+                    WHERE IsDeleted = 0
+                      AND (FilePath = @mkvPath OR FilePath = @mp4Path);";
+                cmd.Parameters.AddWithValue("@mkvPath", mkvPath);
+                cmd.Parameters.AddWithValue("@mp4Path", mp4Path);
+                cmd.Parameters.AddWithValue("@attemptedAt", ToDatabaseTimestamp(attemptedAt));
+                cmd.Parameters.AddWithValue("@error", error ?? "");
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        public void ClearMkvConversionFailure(string filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return;
+
+            (string mkvPath, string mp4Path) = GetMkvAndMp4Paths(filePath);
+            lock (_lock)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.CommandText = @"
+                    UPDATE VideoRecords
+                    SET MkvFirstFailedAt = NULL,
+                        MkvLastAttemptAt = NULL,
+                        MkvFailureCount = 0,
+                        MkvLastError = '',
+                        MkvLastNotifiedAt = NULL
+                    WHERE FilePath = @mkvPath OR FilePath = @mp4Path;";
+                cmd.Parameters.AddWithValue("@mkvPath", mkvPath);
+                cmd.Parameters.AddWithValue("@mp4Path", mp4Path);
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        public int ClaimMkvFailureNotifications(IEnumerable<string> filePaths, DateTime now)
+        {
+            if (filePaths == null)
+                return 0;
+
+            int claimed = 0;
+            lock (_lock)
+            {
+                foreach (string filePath in filePaths
+                    .Where(path => !string.IsNullOrWhiteSpace(path))
+                    .Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    MkvConversionFailureState state = GetMkvConversionFailureState(filePath);
+                    if (!MkvConversionRetryPolicy.ShouldNotify(state, now))
+                        continue;
+
+                    (string mkvPath, string mp4Path) = GetMkvAndMp4Paths(filePath);
+                    using var cmd = _connection.CreateCommand();
+                    cmd.CommandText = @"
+                        UPDATE VideoRecords
+                        SET MkvLastNotifiedAt = @notifiedAt
+                        WHERE IsDeleted = 0
+                          AND (FilePath = @mkvPath OR FilePath = @mp4Path)
+                          AND (
+                              MkvLastNotifiedAt IS NULL
+                              OR substr(MkvLastNotifiedAt, 1, 10) < @today
+                          );";
+                    cmd.Parameters.AddWithValue("@mkvPath", mkvPath);
+                    cmd.Parameters.AddWithValue("@mp4Path", mp4Path);
+                    cmd.Parameters.AddWithValue("@notifiedAt", ToDatabaseTimestamp(now));
+                    cmd.Parameters.AddWithValue("@today", now.ToString("yyyy-MM-dd"));
+                    if (cmd.ExecuteNonQuery() > 0)
+                        claimed++;
+                }
+            }
+
+            return claimed;
+        }
+
+        private static (string MkvPath, string Mp4Path) GetMkvAndMp4Paths(string filePath)
+        {
+            string extension = Path.GetExtension(filePath);
+            string mkvPath = extension.Equals(".mkv", StringComparison.OrdinalIgnoreCase)
+                ? filePath
+                : Path.ChangeExtension(filePath, ".mkv");
+            string mp4Path = extension.Equals(".mp4", StringComparison.OrdinalIgnoreCase)
+                ? filePath
+                : Path.ChangeExtension(filePath, ".mp4");
+            return (mkvPath, mp4Path);
+        }
+
+        private static DateTime? ReadNullableDateTime(SqliteDataReader reader, int ordinal)
+        {
+            if (reader.IsDBNull(ordinal))
+                return null;
+
+            return DateTime.TryParse(reader.GetString(ordinal), out DateTime value)
+                ? value
+                : null;
+        }
+
+        private static string ToDatabaseTimestamp(DateTime value) =>
+            value.ToString("yyyy-MM-dd HH:mm:ss.fff");
 
         /// <summary>
         /// 查询所有未删除且文件路径以 .mkv 结尾的记录

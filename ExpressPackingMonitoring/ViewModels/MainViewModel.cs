@@ -158,6 +158,7 @@ namespace ExpressPackingMonitoring.ViewModels
         private Task _printedRefundLookupTask;
         private DateTime _lastPrintedRefundLookupUtc = DateTime.MinValue;
         private readonly SemaphoreSlim _mkvConvertLock = new SemaphoreSlim(1, 1);
+        private readonly SemaphoreSlim _mkvBatchLock = new SemaphoreSlim(1, 1);
         private readonly SemaphoreSlim _shutdownLock = new SemaphoreSlim(1, 1);
         private volatile bool _shutdownRequested;
         private bool _isShutdownInProgress;
@@ -1424,15 +1425,10 @@ namespace ExpressPackingMonitoring.ViewModels
                         new Progress<string>(msg => Debug.WriteLine($"[PostStopMux] {msg}")),
                         CancellationToken.None).ConfigureAwait(false);
 
-                    RuntimeLog.Info("MkvToMp4", $"最终停止后合成完成：reason={reason}, success={result.success}, fail={result.fail}, skip={result.skip}");
-                    if (result.fail > 0)
-                    {
-                        _ = Application.Current.Dispatcher.InvokeAsync(() =>
-                        {
-                            if (!_isDisposed)
-                                ShowToast("部分视频合成失败，已保留原文件");
-                        });
-                    }
+                    RuntimeLog.Info(
+                        "MkvToMp4",
+                        $"最终停止后合成完成：reason={reason}, success={result.SuccessCount}, fail={result.FailureCount}, skip={result.SkippedCount}, deferred={result.DeferredCount}, suppressed={result.SuppressedCount}");
+                    ShowMkvFailureToastIfNeeded(result);
                 }
                 catch (Exception ex)
                 {
@@ -2125,20 +2121,40 @@ namespace ExpressPackingMonitoring.ViewModels
         /// <summary>
         /// 批量将数据库中的旧 MKV 文件转换为 MP4（无损容器转换）
         /// </summary>
-        public async Task<(int success, int fail, int skip)> BatchConvertMkvToMp4Async(IProgress<string> progress, CancellationToken token)
+        public async Task<MkvBatchConversionResult> BatchConvertMkvToMp4Async(
+            IProgress<string> progress,
+            CancellationToken token,
+            bool forceRetry = false)
         {
-            if (_db == null) return (0, 0, 0);
+            await _mkvBatchLock.WaitAsync(token);
+            try
+            {
+                return await BatchConvertMkvToMp4CoreAsync(progress, token, forceRetry);
+            }
+            finally
+            {
+                _mkvBatchLock.Release();
+            }
+        }
+
+        private async Task<MkvBatchConversionResult> BatchConvertMkvToMp4CoreAsync(
+            IProgress<string> progress,
+            CancellationToken token,
+            bool forceRetry)
+        {
+            var batchResult = new MkvBatchConversionResult();
+            if (_db == null) return batchResult;
 
             string ffmpegPath = FindFFmpeg();
             if (string.IsNullOrEmpty(ffmpegPath))
             {
                 progress?.Report("未找到 FFmpeg，无法执行转换");
-                return (0, 0, 0);
+                return batchResult;
             }
 
             var mkvPaths = GetMkvConversionTargets();
-            int success = 0, fail = 0, skip = 0;
             int total = mkvPaths.Count;
+            var failedPaths = new List<string>();
 
             for (int i = 0; i < total; i++)
             {
@@ -2147,6 +2163,23 @@ namespace ExpressPackingMonitoring.ViewModels
                 string mkvPath = mkvPaths[i];
                 string mp4Path = Path.ChangeExtension(mkvPath, ".mp4");
                 string fileName = Path.GetFileName(mkvPath);
+                MkvConversionFailureState failureState = _db.GetMkvConversionFailureState(mkvPath);
+                MkvAutomaticRetryDecision retryDecision =
+                    MkvConversionRetryPolicy.GetAutomaticRetryDecision(failureState, DateTime.Now);
+
+                if (!forceRetry && retryDecision == MkvAutomaticRetryDecision.Suppressed)
+                {
+                    batchResult.SuppressedCount++;
+                    progress?.Report($"[{i + 1}/{total}] 已停止自动重试，可在维护工具中手动合并: {fileName}");
+                    continue;
+                }
+
+                if (!forceRetry && retryDecision == MkvAutomaticRetryDecision.Deferred)
+                {
+                    batchResult.DeferredCount++;
+                    progress?.Report($"[{i + 1}/{total}] 等待下次自动重试: {fileName}");
+                    continue;
+                }
 
                 // 如果 MKV 已不存在但 MP4 存在，只更新数据库
                 if (!File.Exists(mkvPath))
@@ -2155,12 +2188,12 @@ namespace ExpressPackingMonitoring.ViewModels
                     {
                         DeleteAudioTempFile(Path.ChangeExtension(mkvPath, ".wav"));
                         _db.UpdateVideoFilePath(mkvPath, mp4Path);
-                        success++;
+                        batchResult.SuccessCount++;
                         progress?.Report($"[{i + 1}/{total}] 已更新数据库: {fileName}");
                     }
                     else
                     {
-                        skip++;
+                        batchResult.SkippedCount++;
                         progress?.Report($"[{i + 1}/{total}] 文件不存在，跳过: {fileName}");
                     }
                     continue;
@@ -2179,7 +2212,7 @@ namespace ExpressPackingMonitoring.ViewModels
                         try { File.Delete(mkvPath); } catch { }
                         DeleteAudioTempFile(Path.ChangeExtension(mkvPath, ".wav"));
                         _db.UpdateVideoFilePath(mkvPath, mp4Path);
-                        success++;
+                        batchResult.SuccessCount++;
                         progress?.Report($"[{i + 1}/{total}] MP4 已存在，已清理 MKV: {fileName}");
                         continue;
                     }
@@ -2187,29 +2220,57 @@ namespace ExpressPackingMonitoring.ViewModels
 
                 progress?.Report($"[{i + 1}/{total}] 正在转换: {fileName}");
 
-                bool ok = await Task.Run(() =>
+                MkvConversionResult conversionResult = await Task.Run(() =>
                 {
                     var result = ConvertMkvToMp4ForPlayback(mkvPath, token);
                     if (!result.Success)
                         RuntimeLog.Warn("MkvRecover", $"Convert failed file={fileName}, error={result.ErrorMessage}");
-                    return result.Success;
+                    return result;
                 }, token);
 
-                if (ok)
+                if (conversionResult.Success)
                 {
                     try { File.Delete(mkvPath); } catch { }
+                    _db.ClearMkvConversionFailure(mkvPath);
                     _db.UpdateVideoFilePath(mkvPath, mp4Path);
-                    success++;
+                    batchResult.SuccessCount++;
                     progress?.Report($"[{i + 1}/{total}] 转换成功: {fileName}");
                 }
                 else
                 {
-                    fail++;
+                    DateTime failedAt = DateTime.Now;
+                    _db.RecordMkvConversionFailure(mkvPath, failedAt, conversionResult.ErrorMessage);
+                    batchResult.FailureCount++;
+                    failedPaths.Add(mkvPath);
+                    if (MkvConversionRetryPolicy.GetAutomaticRetryDecision(
+                            _db.GetMkvConversionFailureState(mkvPath),
+                            failedAt) == MkvAutomaticRetryDecision.Suppressed)
+                    {
+                        batchResult.SuppressedCount++;
+                    }
                     progress?.Report($"[{i + 1}/{total}] 转换失败: {fileName}");
                 }
             }
 
-            return (success, fail, skip);
+            if (!forceRetry && failedPaths.Count > 0)
+                batchResult.NotificationCount = _db.ClaimMkvFailureNotifications(failedPaths, DateTime.Now);
+
+            return batchResult;
+        }
+
+        private void ShowMkvFailureToastIfNeeded(MkvBatchConversionResult result)
+        {
+            if (result?.ShouldNotify != true)
+                return;
+
+            _ = Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                if (!_isDisposed)
+                {
+                    ShowToast(
+                        $"有 {result.NotificationCount} 个视频合成失败，原文件已保留，可在高级设置的维护工具中手动合并");
+                }
+            });
         }
 
         private List<string> GetMkvConversionTargets()
@@ -2275,14 +2336,15 @@ namespace ExpressPackingMonitoring.ViewModels
                     new Progress<string>(msg => Debug.WriteLine($"[MkvRecover] {msg}")),
                     CancellationToken.None);
 
-                if (result.success > 0 || result.fail > 0)
+                if (result.SuccessCount > 0 || result.FailureCount > 0)
                 {
-                    Debug.WriteLine($"[MkvRecover] 启动恢复完成: 成功={result.success}, 失败={result.fail}, 跳过={result.skip}");
-                    if (result.success > 0)
+                    Debug.WriteLine($"[MkvRecover] 启动恢复完成: 成功={result.SuccessCount}, 失败={result.FailureCount}, 跳过={result.SkippedCount}, 暂缓={result.DeferredCount}, 静默={result.SuppressedCount}");
+                    if (result.SuccessCount > 0)
                     {
                         _ = Application.Current.Dispatcher.BeginInvoke(() =>
-                            ShowToast($"已恢复 {result.success} 个断电残留视频"));
+                            ShowToast($"已恢复 {result.SuccessCount} 个断电残留视频"));
                     }
+                    ShowMkvFailureToastIfNeeded(result);
                 }
             }
             catch (Exception ex)
@@ -2349,12 +2411,12 @@ namespace ExpressPackingMonitoring.ViewModels
 
                 progress?.Report("正在合成 MP4 录像...");
                 var result = await BatchConvertMkvToMp4Async(progress, CancellationToken.None);
-                RuntimeLog.Info("Shutdown", $"Save before shutdown done success={result.success}, fail={result.fail}, skip={result.skip}");
+                RuntimeLog.Info("Shutdown", $"Save before shutdown done success={result.SuccessCount}, fail={result.FailureCount}, skip={result.SkippedCount}, deferred={result.DeferredCount}, suppressed={result.SuppressedCount}");
 
-                if (result.fail > 0)
+                if (result.ShouldNotify)
                 {
-                    ShowToast("部分历史录像转换失败，已保留原文件");
-                    RuntimeLog.Warn("Shutdown", $"Save before shutdown has failed historical conversions, allowing exit. failedConversions={result.fail}");
+                    ShowMkvFailureToastIfNeeded(result);
+                    RuntimeLog.Warn("Shutdown", $"Save before shutdown has failed historical conversions, allowing exit. failedConversions={result.FailureCount}");
                 }
 
                 _shutdownPrepared = true;
