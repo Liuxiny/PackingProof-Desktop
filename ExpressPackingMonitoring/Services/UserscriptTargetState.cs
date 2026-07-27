@@ -12,12 +12,7 @@ internal static class UserscriptTargetState
             "\n",
             (devices ?? [])
                 .Where(device => device != null)
-                .Select(device => string.Join(
-                    "|",
-                    device.NodeId?.Trim().ToLowerInvariant() ?? "",
-                    device.NodeName?.Trim() ?? "",
-                    device.DeviceType?.Trim().ToLowerInvariant() ?? "",
-                    device.Address?.Trim().TrimEnd('/').ToLowerInvariant() ?? ""))
+                .Select(device => device.Address?.Trim().TrimEnd('/').ToLowerInvariant() ?? "")
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .Distinct(StringComparer.Ordinal)
                 .OrderBy(value => value, StringComparer.Ordinal));
@@ -53,7 +48,7 @@ internal static class UserscriptTargetState
                 StringComparison.Ordinal))
         {
             return new UserscriptTargetStatus(
-                "发现新的录像设备，请更新订单联动脚本",
+                "录像设备地址有变化，请更新订单联动脚本",
                 "更新订单联动",
                 currentSignature);
         }
