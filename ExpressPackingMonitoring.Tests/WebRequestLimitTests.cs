@@ -87,7 +87,7 @@ public sealed class WebRequestLimitTests
         Assert.Contains("thumb.loading='lazy'", html);
         Assert.Contains("v.thumbnailUrl", html);
         Assert.Contains("id=\"mobileConnectButton\"", html);
-        Assert.Contains("data-icon=\"phone\"", html);
+        Assert.Contains("data-icon=\"phoneDesktop\"", html);
         Assert.Contains("external device-color-'+sourceDeviceColor(v)", html);
         Assert.Contains("status.textContent=external?sourceDeviceDisplayName(v):'电脑'", html);
         Assert.Contains("match=/^手机(\\d+)$/", html);
