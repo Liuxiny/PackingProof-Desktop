@@ -10,6 +10,14 @@
         Icon="/app.ico"
         Background="{DynamicResource WindowBackground}"
         FontFamily="Microsoft YaHei UI, Segoe UI">
+    <Window.Resources>
+        <Style x:Key="ViewerActionButtonStyle"
+               TargetType="Button"
+               BasedOn="{StaticResource SecondaryButtonStyle}">
+            <Setter Property="Height" Value="38"/>
+            <Setter Property="Padding" Value="12,0"/>
+        </Style>
+    </Window.Resources>
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <Grid Margin="28">
             <Grid.RowDefinitions>
@@ -32,10 +40,19 @@
                                Foreground="{DynamicResource TextSecondary}"/>
                 </StackPanel>
                 <Button Grid.Column="1"
+                        Height="38"
+                        Padding="14,0"
                         VerticalAlignment="Center"
                         Style="{StaticResource SecondaryButtonStyle}"
-                        Click="SwitchPurpose_Click"
-                        Content="切换用途"/>
+                        ToolTip="重新选择这台电脑的用途"
+                        Click="SwitchPurpose_Click">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Data="{StaticResource FluentArrowSwapIcon}"
+                              Width="15" Height="15" Stretch="Uniform"
+                              Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                        <TextBlock Text="切换用途" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
             </Grid>
 
             <Border Grid.Row="1"
@@ -81,19 +98,73 @@
 
             <StackPanel Grid.Row="2" Margin="0,16,0,0">
                 <WrapPanel>
-                    <Button x:Name="OpenWebButton" Content="打开录像网页" Style="{DynamicResource PrimaryButtonStyle}"
-                            Margin="0,0,10,10" Click="OpenWeb_Click"/>
-                    <Button Content="重新搜索主机" Style="{DynamicResource SecondaryButtonStyle}"
-                            Margin="0,0,10,10" Click="SearchHosts_Click"/>
-                    <Button Content="更换主机" Style="{DynamicResource SecondaryButtonStyle}"
-                            Margin="0,0,10,10" Click="ChangeHost_Click"/>
-                    <Button x:Name="UserscriptButton" Content="安装订单联动"
-                            Style="{DynamicResource SecondaryButtonStyle}"
-                            Margin="0,0,10,10" Click="InstallUserscript_Click"/>
-                    <Button x:Name="SendTestOrderButton" Content="发送测试订单"
-                            Style="{DynamicResource SecondaryButtonStyle}"
+                    <Button x:Name="OpenWebButton"
+                            Height="38"
+                            Padding="12,0"
+                            Style="{DynamicResource PrimaryButtonStyle}"
+                            ToolTip="在浏览器中打开主机录像回放页面"
+                            Margin="0,0,10,10"
+                            Click="OpenWeb_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource FluentOpenIcon}"
+                                  Width="16" Height="16" Stretch="Uniform"
+                                  Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                            <TextBlock Text="打开录像网页" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource ViewerActionButtonStyle}"
+                            ToolTip="重新扫描局域网中的 PackingProof 主机"
+                            Margin="0,0,10,10"
+                            Click="SearchHosts_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource FluentSearchIcon}"
+                                  Width="16" Height="16" Stretch="Uniform"
+                                  Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                            <TextBlock Text="重新搜索主机" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource ViewerActionButtonStyle}"
+                            ToolTip="解除当前显示并选择另一台主机"
+                            Margin="0,0,10,10"
+                            Click="ChangeHost_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource FluentArrowSyncIcon}"
+                                  Width="16" Height="16" Stretch="Uniform"
+                                  Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                            <TextBlock Text="更换主机" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="UserscriptButton"
+                            Style="{StaticResource ViewerActionButtonStyle}"
+                            ToolTip="安装或更新快递助手订单联动脚本"
+                            Margin="0,0,10,10"
+                            Click="InstallUserscript_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource FluentLinkIcon}"
+                                  Width="16" Height="16" Stretch="Uniform"
+                                  Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                            <TextBlock x:Name="UserscriptButtonText"
+                                       Text="安装订单联动"
+                                       Margin="6,0,0,0"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="SendTestOrderButton"
+                            Style="{StaticResource ViewerActionButtonStyle}"
+                            ToolTip="向当前在线的全部录像设备发送测试订单"
                             IsEnabled="False"
-                            Margin="0,0,10,10" Click="SendTestOrder_Click"/>
+                            Margin="0,0,10,10"
+                            Click="SendTestOrder_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource FluentPlayIcon}"
+                                  Width="16" Height="16" Stretch="Uniform"
+                                  Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                            <TextBlock x:Name="SendTestOrderButtonText"
+                                       Text="发送测试订单"
+                                       Margin="6,0,0,0"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
                 </WrapPanel>
                 <TextBlock x:Name="UserscriptStatusText"
                            Text="尚未配置订单联动"
@@ -131,14 +202,34 @@
                         </ListBox.ItemTemplate>
                     </ListBox>
                     <WrapPanel Margin="0,12,0,0">
-                        <Button x:Name="BindSelectedButton" Content="绑定所选主机"
+                        <Button x:Name="BindSelectedButton"
+                                Height="38"
+                                Padding="12,0"
                                 Style="{DynamicResource PrimaryButtonStyle}"
-                                Margin="0,0,10,10" Click="BindSelected_Click"/>
-                        <TextBox x:Name="ManualAddressTextBox" Width="260" Height="34"
+                                ToolTip="保存并连接列表中选中的主机"
+                                Margin="0,0,10,10"
+                                Click="BindSelected_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="{StaticResource FluentCheckIcon}"
+                                      Width="16" Height="16" Stretch="Uniform"
+                                      Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                                <TextBlock Text="绑定所选主机" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <TextBox x:Name="ManualAddressTextBox" Width="260" Height="38"
                                  Margin="0,0,10,10" VerticalContentAlignment="Center"
                                  ToolTip="例如 192.168.1.20:5280"/>
-                        <Button Content="连接手动地址" Style="{DynamicResource SecondaryButtonStyle}"
-                                Margin="0,0,10,10" Click="BindManual_Click"/>
+                        <Button Style="{StaticResource ViewerActionButtonStyle}"
+                                ToolTip="连接输入的主机地址"
+                                Margin="0,0,10,10"
+                                Click="BindManual_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="{StaticResource FluentLinkIcon}"
+                                      Width="16" Height="16" Stretch="Uniform"
+                                      Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                                <TextBlock Text="连接手动地址" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
                     </WrapPanel>
                 </StackPanel>
             </Border>

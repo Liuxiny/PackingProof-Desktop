@@ -199,7 +199,7 @@ public partial class ViewerClientWindow : Window
 
         _testOrderSending = true;
         SendTestOrderButton.IsEnabled = false;
-        SendTestOrderButton.Content = "正在发送";
+        SendTestOrderButtonText.Text = "正在发送";
         try
         {
             WorkstationNetwork.TestOrderBroadcastResult result =
@@ -217,7 +217,7 @@ public partial class ViewerClientWindow : Window
         {
             _testOrderSending = false;
             SendTestOrderButton.IsEnabled = _boundHost != null;
-            SendTestOrderButton.Content = "发送测试订单";
+            SendTestOrderButtonText.Text = "发送测试订单";
         }
     }
 
@@ -227,7 +227,7 @@ public partial class ViewerClientWindow : Window
             _config,
             _knownRecordingDevices);
         UserscriptStatusText.Text = status.StatusText;
-        UserscriptButton.Content = status.ButtonText;
+        UserscriptButtonText.Text = status.ButtonText;
     }
 
     private void SwitchPurpose_Click(object sender, RoutedEventArgs e)

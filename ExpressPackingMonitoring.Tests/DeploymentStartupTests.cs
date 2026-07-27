@@ -123,6 +123,38 @@ public sealed class DeploymentStartupTests
     }
 
     [Fact]
+    public void ViewerClientActionButtonsUseFluentIconsAndNamedDynamicLabels()
+    {
+        string xaml = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "Workstations",
+            "ViewerClientWindow.xaml");
+        string source = ReadRepositoryFile(
+            "ExpressPackingMonitoring",
+            "Workstations",
+            "ViewerClientWindow.xaml.cs");
+
+        foreach (string icon in new[]
+        {
+            "FluentArrowSwapIcon",
+            "FluentOpenIcon",
+            "FluentSearchIcon",
+            "FluentArrowSyncIcon",
+            "FluentLinkIcon",
+            "FluentPlayIcon",
+            "FluentCheckIcon"
+        })
+        {
+            Assert.Contains($"StaticResource {icon}", xaml, StringComparison.Ordinal);
+        }
+
+        Assert.Contains("x:Name=\"UserscriptButtonText\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"SendTestOrderButtonText\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("UserscriptButtonText.Text = status.ButtonText", source, StringComparison.Ordinal);
+        Assert.Contains("SendTestOrderButtonText.Text = \"正在发送\"", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void WorkstationAddressNormalizationRemovesPlaybackKeyAndPath()
     {
         Assert.Equal(
@@ -153,7 +185,7 @@ public sealed class DeploymentStartupTests
             "Workstations",
             "ViewerClientWindow.xaml.cs");
 
-        Assert.Contains("Content=\"切换用途\"", viewerXaml, StringComparison.Ordinal);
+        Assert.Contains("Text=\"切换用途\"", viewerXaml, StringComparison.Ordinal);
         Assert.Contains("Click=\"SwitchPurpose_Click\"", viewerXaml, StringComparison.Ordinal);
         Assert.Contains("Text=\"切换用途\"", mobileBackupXaml, StringComparison.Ordinal);
         Assert.Contains("Text=\"{Binding SwitchWorkstationButtonText}\"", recordingXaml, StringComparison.Ordinal);
@@ -368,7 +400,7 @@ public sealed class DeploymentStartupTests
         Assert.Contains("x:Name=\"SendTestOrderButton\"", viewerXaml, StringComparison.Ordinal);
         Assert.Contains("x:Name=\"SendTestOrderButton\"", mobileBackupXaml, StringComparison.Ordinal);
         Assert.Equal(1, recordingXaml.Split("Text=\"发送测试订单\"", StringSplitOptions.None).Length - 1);
-        Assert.Equal(1, viewerXaml.Split("Content=\"发送测试订单\"", StringSplitOptions.None).Length - 1);
+        Assert.Equal(1, viewerXaml.Split("Text=\"发送测试订单\"", StringSplitOptions.None).Length - 1);
         Assert.Equal(1, mobileBackupXaml.Split("Text=\"发送测试订单\"", StringSplitOptions.None).Length - 1);
         Assert.Contains("<Grid.RowDefinitions>", recordingXaml, StringComparison.Ordinal);
         Assert.Matches("x:Name=\"BtnInstallUserscript\"\\s+Grid.Row=\"2\"", recordingXaml);
