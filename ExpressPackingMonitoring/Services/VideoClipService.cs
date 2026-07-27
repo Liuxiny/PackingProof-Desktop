@@ -131,8 +131,7 @@ namespace ExpressPackingMonitoring.Services
             var record = GetAvailableRecord(videoId);
             string sourcePath = ResolveClipSourcePath(record);
             double duration = ResolveDuration(record);
-            double seconds = Math.Clamp(duration * 0.1, 0.5, 3.0);
-            seconds = ClampPreviewSecond(RoundToTenth(seconds), duration);
+            double seconds = CalculateThumbnailSecond(duration);
             string path = EnsurePreviewFrame(videoId, sourcePath, seconds, duration, "thumbnail");
 
             return new ClipPreviewFrameResult
@@ -782,6 +781,11 @@ namespace ExpressPackingMonitoring.Services
         private static double ClampPreviewSecond(double value, double duration)
         {
             return Math.Max(0, Math.Min(value, Math.Max(0, duration - 0.05)));
+        }
+
+        internal static double CalculateThumbnailSecond(double duration)
+        {
+            return ClampPreviewSecond(RoundToTenth(duration * 0.8), duration);
         }
 
         private static string ResolveFileInDirectory(string directory, string fileName, string extension)
