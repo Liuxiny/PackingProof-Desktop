@@ -533,6 +533,13 @@
   <data name="主机能力" xml:space="preserve"><value>主机能力</value></data>
   <data name="录像设备数量" xml:space="preserve"><value>录像设备数量</value></data>
   <data name="打开录像网页" xml:space="preserve"><value>打开录像网页</value></data>
+  <data name="重新选择这台电脑的用途" xml:space="preserve"><value>重新选择这台电脑的用途</value></data>
+  <data name="在浏览器中打开主机网页回放" xml:space="preserve"><value>在浏览器中打开主机网页回放</value></data>
+  <data name="打开网页回放" xml:space="preserve"><value>打开网页回放</value></data>
+  <data name="重新扫描局域网中的 PackingProof 主机" xml:space="preserve"><value>重新扫描局域网中的 PackingProof 主机</value></data>
+  <data name="解除当前显示并选择另一台主机" xml:space="preserve"><value>解除当前显示并选择另一台主机</value></data>
+  <data name="保存并连接列表中选中的主机" xml:space="preserve"><value>保存并连接列表中选中的主机</value></data>
+  <data name="连接输入的主机地址" xml:space="preserve"><value>连接输入的主机地址</value></data>
   <data name="重新搜索主机" xml:space="preserve"><value>重新搜索主机</value></data>
   <data name="更换主机" xml:space="preserve"><value>更换主机</value></data>
   <data name="安装快递助手联动" xml:space="preserve"><value>安装快递助手联动</value></data>
