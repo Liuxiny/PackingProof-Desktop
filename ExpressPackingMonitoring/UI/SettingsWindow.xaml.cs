@@ -102,6 +102,8 @@ namespace ExpressPackingMonitoring.UI
         public AppConfig Config { get; set; }
         public double CurrentDiskUsagePercent { get; set; }
         public string CurrentDiskUsageText { get; set; }
+        public int SuggestedRetentionDays { get; set; }
+        public string StorageRetentionWarningText { get; set; }
         public string AppVersion { get; } = ExpressPackingMonitoring.Config.AppVersion.Current;
         public string AppBuildDate { get; } = ExpressPackingMonitoring.Config.AppVersion.BuildDateText;
         public ImageSource AppIconImage { get; } = GetLargestAppIconImage();
@@ -131,6 +133,8 @@ namespace ExpressPackingMonitoring.UI
         private bool _isLoadingDevices;
         private bool _isSyncingVoiceEngine;
         private bool _isSyncingScannerModes;
+        private CancellationTokenSource _performanceCts;
+        private RecordingPerformanceResult _lastPerformanceResult;
 
         public SettingsWindow(MainViewModel mainVM, AppConfig clonedConfig, double diskUsagePercent, string diskUsageText, bool isRecording = false)
             : this(SettingsContext.ForCameraWorkstation(mainVM), clonedConfig, diskUsagePercent, diskUsageText, isRecording)
@@ -149,6 +153,9 @@ namespace ExpressPackingMonitoring.UI
 
             CurrentDiskUsagePercent = diskUsagePercent;
             CurrentDiskUsageText = diskUsageText;
+            SuggestedRetentionDays = Math.Max(StorageRetentionPolicy.MinimumRetentionDays,
+                Context.SuggestedRetentionDaysProvider?.Invoke() ?? Config.MaxRetentionDays);
+            StorageRetentionWarningText = Context.StorageRetentionWarningProvider?.Invoke() ?? "";
 
             this.DataContext = this;
             if (Capabilities.IsRecordingDevice)
@@ -157,8 +164,7 @@ namespace ExpressPackingMonitoring.UI
             if (Capabilities.CanRecordPcVideo)
             {
                 // GPU编码器使用缓存，可立即加载
-                LoadGpuEncoders();
-                LoadVideoCodecs();
+                LoadVideoEncoders();
                 if (Config.ZoomScale < 1.2 || Config.ZoomScale > 4.0) Config.ZoomScale = 1.5;
             }
 
@@ -528,32 +534,19 @@ namespace ExpressPackingMonitoring.UI
             }
         }
 
-        private void LoadGpuEncoders()
+        private void LoadVideoEncoders()
         {
             var encoders = MainViewModel.CachedEncoderOptions
                 ?? new List<GpuEncoderOption>
                 {
-                    new GpuEncoderOption { Value = "auto", DisplayName = "自动检测（优先独显）" },
-                    new GpuEncoderOption { Value = "cpu", DisplayName = "CPU 软编码" }
+                    new GpuEncoderOption { Value = "auto", DisplayName = "自动选择（根据本机实测）" }
                 };
-            GpuEncoderComboBox.ItemsSource = encoders;
-            string normalized = NormalizeGpuSetting(Config.GpuEncoder ?? "auto");
+            VideoEncoderComboBox.ItemsSource = encoders;
+            string normalized = AppConfig.NormalizeVideoEncoder(Config.VideoEncoder);
             var match = encoders.FirstOrDefault(e => e.Value == normalized)
+                     ?? encoders.FirstOrDefault(e => e.Value == "auto")
                      ?? encoders.FirstOrDefault();
-            GpuEncoderComboBox.SelectedItem = match;
-        }
-
-        private void LoadVideoCodecs()
-        {
-            var items = new[]
-            {
-                new GpuEncoderOption { Value = "h264", DisplayName = "H.264 (兼容性好)" },
-                new GpuEncoderOption { Value = "h265", DisplayName = "H.265 / HEVC (体积更小)" },
-                new GpuEncoderOption { Value = "av1",  DisplayName = "AV1 (极致压缩，推荐)" }
-            };
-            VideoCodecComboBox.ItemsSource = items;
-            string current = Config.VideoCodec?.ToLowerInvariant() ?? "h264";
-            VideoCodecComboBox.SelectedItem = items.FirstOrDefault(i => i.Value == current) ?? items[0];
+            VideoEncoderComboBox.SelectedItem = match;
         }
 
         private static string NormalizeGpuSetting(string setting) => EncodingHelper.NormalizeGpuSetting(setting);
@@ -563,7 +556,7 @@ namespace ExpressPackingMonitoring.UI
             EnsurePrimaryStorageLocationExists();
             var primary = Config.StorageLocations[0];
 
-            string selectedPath = SelectDefaultStoragePathFromDrive();
+            string selectedPath = SelectStoragePath(primary.Path);
             if (string.IsNullOrWhiteSpace(selectedPath)) return;
 
             if (!TryPrepareStoragePath(selectedPath, out string errorMessage))
@@ -582,26 +575,12 @@ namespace ExpressPackingMonitoring.UI
 
         private void BtnAddStorage_Click(object sender, RoutedEventArgs e)
         {
-            string selectedPath = SelectDefaultStoragePathFromDrive();
+            string selectedPath = SelectStoragePath();
             if (string.IsNullOrWhiteSpace(selectedPath)) return;
 
-            if (Config.StorageLocations.Any(x => string.Equals(x.Path, selectedPath, StringComparison.OrdinalIgnoreCase)))
+            if (Config.StorageLocations.Any(x => AreSameStoragePath(x.Path, selectedPath)))
             {
                 AppDialog.ShowMessage(this, "该路径已在列表中。", "提示", AppDialogSeverity.Information);
-                return;
-            }
-
-            string selectedRoot = GetStorageRoot(selectedPath);
-            StorageLocation sameDisk = Config.StorageLocations.FirstOrDefault(x =>
-                !string.IsNullOrWhiteSpace(x.Path) &&
-                string.Equals(GetStorageRoot(x.Path), selectedRoot, StringComparison.OrdinalIgnoreCase));
-            if (sameDisk != null)
-            {
-                AppDialog.ShowMessage(
-                    this,
-                    $"同一个磁盘已经添加过：\n{sameDisk.Path}\n\n请换一个磁盘，或直接调整已有路径的容量和列表顺序。",
-                    "磁盘已存在",
-                    AppDialogSeverity.Information);
                 return;
             }
 
@@ -624,17 +603,136 @@ namespace ExpressPackingMonitoring.UI
             UpdateStorageButtonStates();
         }
 
-        private string SelectDefaultStoragePathFromDrive()
+        private string SelectStoragePath(string initialPath = null)
         {
-            var dialog = new DriveSelectionDialog(Config.StorageLocations.Select(location => location.Path))
+            var dialog = new StoragePathSelectionDialog(initialPath)
             {
                 Owner = this
             };
 
-            if (dialog.ShowDialog() != true || string.IsNullOrWhiteSpace(dialog.SelectedRootPath))
+            if (dialog.ShowDialog() != true || string.IsNullOrWhiteSpace(dialog.SelectedPath))
                 return "";
 
-            return Path.Combine(dialog.SelectedRootPath, "快递打包视频");
+            return dialog.SelectedPath;
+        }
+
+        public void SelectTab(string header)
+        {
+            if (SettingsTabs.Items
+                .OfType<TabItem>()
+                .FirstOrDefault(item => string.Equals(item.Header?.ToString(), header, StringComparison.Ordinal)) is TabItem target)
+            {
+                SettingsTabs.SelectedItem = target;
+            }
+        }
+
+        private void UseSuggestedRetention_Click(object sender, RoutedEventArgs e)
+        {
+            Config.MaxRetentionDays = Math.Max(StorageRetentionPolicy.MinimumRetentionDays, SuggestedRetentionDays);
+        }
+
+        private async void RunPerformanceAssessment_Click(object sender, RoutedEventArgs e)
+        {
+            if (_isRecording || Context.RunPerformanceAssessmentAsync == null) return;
+            if (CameraComboBox.SelectedItem is not CameraInfo camera
+                || ResComboBox.SelectedItem is not ResOption resolution
+                || FpsComboBox.SelectedItem is not ComboBoxItem fpsItem
+                || fpsItem.Tag is not int fps
+                || VideoEncoderComboBox.SelectedItem is not GpuEncoderOption encoderOption)
+            {
+                AppDialog.ShowMessage(this, "请先选择摄像头、分辨率、帧率和编码器", "性能检测", AppDialogSeverity.Warning);
+                return;
+            }
+
+            string encoder = Context.ResolveEncoderForAssessment?.Invoke(encoderOption.Value) ?? encoderOption.Value;
+            if (string.IsNullOrWhiteSpace(encoder) || encoder == "auto")
+            {
+                AppDialog.ShowMessage(this, "没有可用于性能检测的已验证编码器，请先重新检测编码器", "性能检测", AppDialogSeverity.Warning);
+                return;
+            }
+
+            List<CameraRecordingMode> modes = new VideoCaptureDevice(camera.Moniker).VideoCapabilities
+                .Select(capability => new CameraRecordingMode(
+                    capability.FrameSize.Width,
+                    capability.FrameSize.Height,
+                    Math.Max(1, capability.AverageFrameRate)))
+                .Distinct()
+                .ToList();
+            var request = new RecordingPerformanceRequest(
+                camera.Moniker,
+                resolution.Width,
+                resolution.Height,
+                fps,
+                encoder,
+                modes);
+
+            bool paused = false;
+            _performanceCts?.Cancel();
+            _performanceCts?.Dispose();
+            _performanceCts = new CancellationTokenSource();
+            PerformanceDetectButton.IsEnabled = false;
+            ApplyPerformanceRecommendationButton.Visibility = Visibility.Collapsed;
+            PerformanceResultText.Text = "正在进行约 5 秒的真实采集与编码测试…";
+            try
+            {
+                paused = Context.SuspendCameraForSetupWizard?.Invoke() ?? true;
+                if (!paused)
+                    throw new InvalidOperationException("无法暂停当前摄像头预览");
+
+                RecordingPerformanceResult result = await Context.RunPerformanceAssessmentAsync(request, _performanceCts.Token);
+                _lastPerformanceResult = result;
+                PerformanceResultText.Text = result.Success
+                    ? result.Summary
+                    : $"性能检测失败：{result.Error}";
+                if (result.Success && !result.MeetsTarget)
+                    ApplyPerformanceRecommendationButton.Visibility = Visibility.Visible;
+            }
+            catch (OperationCanceledException)
+            {
+                PerformanceResultText.Text = "性能检测已取消";
+            }
+            catch (Exception ex)
+            {
+                PerformanceResultText.Text = $"性能检测失败：{ex.Message}";
+            }
+            finally
+            {
+                if (paused)
+                    Context.ResumeCameraAfterSetupWizard?.Invoke();
+                PerformanceDetectButton.IsEnabled = !_isRecording;
+            }
+        }
+
+        private void ApplyPerformanceRecommendation_Click(object sender, RoutedEventArgs e)
+        {
+            if (_lastPerformanceResult == null) return;
+            Config.FrameWidth = _lastPerformanceResult.RecommendedWidth;
+            Config.FrameHeight = _lastPerformanceResult.RecommendedHeight;
+            Config.Fps = _lastPerformanceResult.RecommendedFps;
+            EncodingHelper.ApplyEncoderSelectionToConfig(Config, _lastPerformanceResult.RecommendedEncoder);
+
+            if (ResComboBox.ItemsSource is IEnumerable<ResOption> resolutions)
+                ResComboBox.SelectedItem = resolutions.FirstOrDefault(item =>
+                    item.Width == Config.FrameWidth && item.Height == Config.FrameHeight);
+            if (FpsComboBox.ItemsSource is IEnumerable<ComboBoxItem> fpsItems)
+                FpsComboBox.SelectedItem = fpsItems.FirstOrDefault(item => item.Tag is int value && value == Config.Fps);
+            if (VideoEncoderComboBox.ItemsSource is IEnumerable<GpuEncoderOption> encoders)
+                VideoEncoderComboBox.SelectedItem = encoders.FirstOrDefault(item => item.Value == Config.VideoEncoder);
+            PerformanceResultText.Text += "；已填入推荐配置，请保存设置";
+            ApplyPerformanceRecommendationButton.Visibility = Visibility.Collapsed;
+        }
+
+        private void SelectLocalRecordingBuffer_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new StoragePathSelectionDialog(Config.LocalRecordingBufferPath) { Owner = this };
+            if (dialog.ShowDialog() != true || string.IsNullOrWhiteSpace(dialog.SelectedPath)) return;
+            if (!StorageLocationResolver.IsValidLocalBufferPath(dialog.SelectedPath, out string reason))
+            {
+                AppDialog.ShowMessage(this, reason, "本地缓冲目录无效", AppDialogSeverity.Warning);
+                return;
+            }
+            Config.LocalRecordingBufferPath = dialog.SelectedPath;
+            LocalRecordingBufferTextBox.GetBindingExpression(TextBox.TextProperty)?.UpdateTarget();
         }
 
         private bool TryPrepareStoragePath(string path, out string errorMessage)
@@ -815,6 +913,26 @@ namespace ExpressPackingMonitoring.UI
                 StorageDataGrid.CommitEdit(DataGridEditingUnit.Row, true);
                 StorageDataGrid.CommitEdit(DataGridEditingUnit.Cell, true);
                 RefreshStoragePriorities();
+
+                if (Config.MaxRetentionDays < StorageRetentionPolicy.MinimumRetentionDays)
+                {
+                    AppDialog.ShowMessage(this, "录像最长保留天数最短为 15 天", "存储设置无效", AppDialogSeverity.Warning);
+                    return false;
+                }
+                if (Config.EnableMaxStorageUsage && Config.MaxStorageUsageGB <= 0)
+                {
+                    AppDialog.ShowMessage(this, "启用最大占用后，请填写大于 0 GB 的容量", "存储设置无效", AppDialogSeverity.Warning);
+                    return false;
+                }
+                bool hasNetworkStorage = Config.StorageLocations.Any(location =>
+                    !string.IsNullOrWhiteSpace(location.Path)
+                    && StorageLocationResolver.IsNetworkPath(location.Path));
+                if (hasNetworkStorage
+                    && !StorageLocationResolver.IsValidLocalBufferPath(Config.LocalRecordingBufferPath, out string bufferError))
+                {
+                    AppDialog.ShowMessage(this, bufferError, "本地缓冲目录无效", AppDialogSeverity.Warning);
+                    return false;
+                }
             }
 
             // 2. 手动同步部分控件（防止可焦点未切换时绑定未更新）
@@ -849,14 +967,9 @@ namespace ExpressPackingMonitoring.UI
                 }
             }
 
-            if (Capabilities.CanRecordPcVideo && GpuEncoderComboBox.SelectedItem is GpuEncoderOption gpuOpt)
+            if (Capabilities.CanRecordPcVideo && VideoEncoderComboBox.SelectedItem is GpuEncoderOption encoderOption)
             {
-                Config.GpuEncoder = gpuOpt.Value;
-            }
-
-            if (Capabilities.CanRecordPcVideo && VideoCodecComboBox.SelectedItem is GpuEncoderOption codecOpt)
-            {
-                Config.VideoCodec = codecOpt.Value;
+                EncodingHelper.ApplyEncoderSelectionToConfig(Config, encoderOption.Value);
             }
 
             // 保存断句关键词
@@ -1099,6 +1212,8 @@ namespace ExpressPackingMonitoring.UI
             _isClosing = true;
             var migrationCts = Interlocked.Exchange(ref _migrationCts, null);
             try { migrationCts?.Cancel(); } catch (ObjectDisposedException) { }
+            try { _performanceCts?.Cancel(); } catch (ObjectDisposedException) { }
+            _performanceCts?.Dispose();
             Context.SetPreviewZoomScale?.Invoke(null);
             _previewSpeechService?.Stop();
             _previewSpeechService?.Dispose();
@@ -1108,73 +1223,22 @@ namespace ExpressPackingMonitoring.UI
 
         private bool ValidateEncoderSelectionBeforeSave()
         {
-            string codec = (Config.VideoCodec ?? "h264").Trim().ToLowerInvariant();
-            string gpu = NormalizeGpuSetting(Config.GpuEncoder ?? "auto");
+            string encoder = AppConfig.NormalizeVideoEncoder(Config.VideoEncoder);
             var validated = MainViewModel.ValidatedEncoders ?? new HashSet<string>();
-
-            string requestedEncoder = EncodingHelper.ResolveRequestedEncoder(gpu, codec);
-            string fallbackEncoder = EncodingHelper.ResolveFallbackEncoder(gpu, codec, validated);
-
-            if (fallbackEncoder == requestedEncoder)
-            {
-                if (!string.Equals(NormalizeGpuSetting(Config.GpuEncoder ?? "auto"), NormalizeGpuSetting(fallbackEncoder), StringComparison.OrdinalIgnoreCase)
-                    && gpu != "auto")
-                {
-                    string fallbackGpu = NormalizeGpuSetting(fallbackEncoder);
-                    Config.GpuEncoder = string.IsNullOrEmpty(fallbackGpu) ? "cpu" : fallbackGpu;
-                }
+            if (encoder == "auto" || validated.Contains(encoder))
                 return true;
-            }
-
-            string requestedLabel = EncodingHelper.GetEncoderLabel(requestedEncoder);
-            string fallbackLabel = EncodingHelper.GetEncoderLabel(fallbackEncoder);
-
-            // 该编解码器完全不可用：保存前直接改成可用方案
-            if (codec != EncodingHelper.GetCodecFromEncoder(fallbackEncoder))
-            {
-                bool useFallback = AppDialog.Confirm(
-                    this,
-                    $"当前设备或 FFmpeg 不支持 {EncodingHelper.GetCodecLabel(codec)}。\n\n" +
-                    $"请求方案: {requestedLabel}\n" +
-                    $"建议切换到: {fallbackLabel}\n\n" +
-                    $"是否在保存时自动改为 {fallbackLabel}？",
-                    "编码器不可用",
-                    "使用建议方案",
-                    "取消保存",
-                    AppDialogSeverity.Warning,
-                    isDangerous: false);
-
-                if (!useFallback)
-                    return false;
-
-                EncodingHelper.ApplyEncoderSelectionToConfig(Config, fallbackEncoder);
-                SyncEncoderComboboxes(fallbackEncoder);
-                return true;
-            }
-
-            // 同一编解码器可用，但会回退到别的实现
             AppDialog.ShowMessage(
                 this,
-                $"当前选择的 {requestedLabel} 不可用。\n\n" +
-                $"保存后实际会回退到: {fallbackLabel}\n\n" +
-                $"设置将按可用方案保存。",
-                "编码器将自动回退", AppDialogSeverity.Information);
-
-            EncodingHelper.ApplyEncoderSelectionToConfig(Config, fallbackEncoder);
-            SyncEncoderComboboxes(fallbackEncoder);
-            return true;
+                "所选编码器不可用，请重新检测或选择其他编码器",
+                "编码器不可用",
+                AppDialogSeverity.Warning);
+            return false;
         }
 
         private void SyncEncoderComboboxes(string encoder)
         {
-            string codec = EncodingHelper.GetCodecFromEncoder(encoder);
-            string gpu = NormalizeGpuSetting(encoder);
-
-            if (VideoCodecComboBox.ItemsSource is IEnumerable<GpuEncoderOption> codecs)
-                VideoCodecComboBox.SelectedItem = codecs.FirstOrDefault(i => i.Value == codec);
-
-            if (GpuEncoderComboBox.ItemsSource is IEnumerable<GpuEncoderOption> gpus)
-                GpuEncoderComboBox.SelectedItem = gpus.FirstOrDefault(i => i.Value == gpu);
+            if (VideoEncoderComboBox.ItemsSource is IEnumerable<GpuEncoderOption> encoders)
+                VideoEncoderComboBox.SelectedItem = encoders.FirstOrDefault(i => i.Value == encoder);
         }
 
 
@@ -1188,16 +1252,23 @@ namespace ExpressPackingMonitoring.UI
             OpenExternalUrl("https://github.com/m-RNA/ExpressPackingMonitoring/blob/main/LICENSE");
         }
 
-        private static string GetStorageRoot(string path)
+        internal static bool AreSameStoragePath(string firstPath, string secondPath)
         {
             try
             {
-                string fullPath = Path.GetFullPath(path.Trim());
-                return Path.GetPathRoot(fullPath)?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) ?? fullPath;
+                if (string.IsNullOrWhiteSpace(firstPath) || string.IsNullOrWhiteSpace(secondPath))
+                    return false;
+
+                string first = Path.TrimEndingDirectorySeparator(Path.GetFullPath(firstPath.Trim()));
+                string second = Path.TrimEndingDirectorySeparator(Path.GetFullPath(secondPath.Trim()));
+                return string.Equals(first, second, StringComparison.OrdinalIgnoreCase);
             }
             catch
             {
-                return path?.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) ?? "";
+                return string.Equals(
+                    firstPath?.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    secondPath?.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    StringComparison.OrdinalIgnoreCase);
             }
         }
 
@@ -1223,72 +1294,6 @@ namespace ExpressPackingMonitoring.UI
             catch (Exception ex)
             {
                 AppDialog.ShowMessage(null, $"无法打开链接：{ex.Message}", "打开链接失败", AppDialogSeverity.Warning);
-            }
-        }
-
-        private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
-        {
-            CheckUpdateButton.IsEnabled = false;
-            CheckUpdateButton.Content = "正在检查...";
-
-            try
-            {
-                var service = new UpdateCheckService();
-                Task<UpdateCheckResult> desktopCheck = service.CheckManualAsync();
-                Task<MobileAppReleaseInfo> mobileCheck =
-                    MobileAppUpdatePolicyProvider.Shared.CheckLatestAsync();
-                UpdateCheckResult result = await desktopCheck;
-                MobileAppReleaseInfo mobileRelease = null;
-                try
-                {
-                    mobileRelease = await mobileCheck;
-                }
-                catch (Exception ex)
-                {
-                    RuntimeLog.Warn("MobileUpdate", $"Manual mobile update check failed: {ex.Message}");
-                }
-
-                bool hasNewMobileVersion = mobileRelease != null
-                    && mobileRelease.BuildNumber
-                        > MobileAppUpdatePolicyProvider.MinimumPolicy.MinimumBuildNumber;
-                if (result.HasUpdate)
-                    ShowUpdateDialog(result);
-                if (hasNewMobileVersion)
-                    MobileAppUpdatePrompt.ShowLatest(this, mobileRelease);
-
-                CheckUpdateButton.Content = result.HasUpdate || hasNewMobileVersion
-                    ? "发现新版本"
-                    : "已为最新";
-            }
-            catch (Exception ex)
-            {
-                RuntimeLog.Error("Update", "Manual update check failed", ex);
-                CheckUpdateButton.Content = "检查失败";
-                CheckUpdateButton.IsEnabled = true;
-            }
-        }
-
-        private void ShowUpdateDialog(UpdateCheckResult result)
-        {
-            var dialog = new UpdateAvailableDialog(result)
-            {
-                Owner = this
-            };
-
-            if (dialog.ShowDialog() == true)
-            {
-                try
-                {
-                    UpdateCheckService.OpenDownloadPage(dialog.DownloadUrl);
-                }
-                catch (Exception ex)
-                {
-                    RuntimeLog.Error("Update", "Open download page failed", ex);
-                    if (Context.ShowToast != null)
-                        Context.ShowToast("打开下载页面失败");
-                    else
-                        AppDialog.ShowMessage(this, "打开下载页面失败", "检查更新", AppDialogSeverity.Warning);
-                }
             }
         }
 

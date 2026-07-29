@@ -136,10 +136,9 @@ namespace ExpressPackingMonitoring.ViewModels
 
             var list = new List<GpuEncoderOption>
             {
-                new GpuEncoderOption { Value = "auto", DisplayName = "自动检测（优先独显）" },
-                new GpuEncoderOption { Value = "cpu", DisplayName = "CPU 软编码" }
+                new GpuEncoderOption { Value = "auto", DisplayName = "自动选择（根据本机实测）" }
             };
-            var validated = new HashSet<string> { "libx264", "libx265" };
+            var validated = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             string ffmpegPath = AppPaths.FindFFmpeg();
             log.AppendLine($"FFmpeg 路径: {ffmpegPath}");
@@ -155,63 +154,40 @@ namespace ExpressPackingMonitoring.ViewModels
             string output = QueryFFmpegEncoders(ffmpegPath);
             log.AppendLine($"ffmpeg -encoders 输出长度: {output.Length}");
 
-            var gpuGroups = new[]
+            string[] candidates =
             {
-                (gpu: "nvidia", label: "NVIDIA GPU (NVENC)",  encs: new[] { "h264_nvenc", "hevc_nvenc", "av1_nvenc" }),
-                (gpu: "amd",    label: "AMD GPU (AMF)",       encs: new[] { "h264_amf",   "hevc_amf",   "av1_amf" }),
-                (gpu: "intel",  label: "Intel GPU (QSV)",     encs: new[] { "h264_qsv",   "hevc_qsv",   "av1_qsv" })
+                "h264_qsv", "hevc_qsv", "av1_qsv",
+                "h264_nvenc", "hevc_nvenc", "av1_nvenc",
+                "h264_amf", "hevc_amf", "av1_amf",
+                "libx264", "libx265", "libsvtav1"
             };
 
-            foreach (var (gpu, label, encs) in gpuGroups)
+            foreach (string encoder in candidates)
             {
-                log.AppendLine($"\n=== {label} ===");
-                bool anyPassed = false;
-
-                foreach (var enc in encs)
+                log.AppendLine($"\n=== {EncodingHelper.GetEncoderLabel(encoder)} ===");
+                bool inList = output.Contains(encoder, StringComparison.OrdinalIgnoreCase);
+                log.AppendLine($"  ffmpeg -encoders 包含: {inList}");
+                if (!inList)
                 {
-                    bool inList = output.Contains(enc);
-                    log.AppendLine($"  --- {enc} ---");
-                    log.AppendLine($"    ffmpeg -encoders 包含: {inList}");
-
-                    if (!inList)
-                    {
-                        log.AppendLine($"    跳过试编码（不在编码器列表中）");
-                        continue;
-                    }
-
-                    var (testOk, testDetail) = TestEncoder(ffmpegPath, enc);
-                    log.AppendLine($"    试编码结果: {(testOk ? "✓ 通过" : "✗ 失败")}");
-                    log.AppendLine($"    详情: {testDetail}");
-
-                    if (testOk)
-                    {
-                        validated.Add(enc);
-                        anyPassed = true;
-                    }
+                    log.AppendLine("  跳过试编码（不在编码器列表中）");
+                    continue;
                 }
 
-                if (anyPassed)
-                    list.Insert(list.Count - 1, new GpuEncoderOption { Value = gpu, DisplayName = label });
-            }
-
-            {
-                log.AppendLine($"\n=== CPU AV1 (libsvtav1) ===");
-                bool svtInList = output.Contains("libsvtav1");
-                log.AppendLine($"  ffmpeg -encoders 包含: {svtInList}");
-                if (svtInList)
+                var (testOk, testDetail) = TestEncoder(ffmpegPath, encoder);
+                log.AppendLine($"  试编码结果: {(testOk ? "✓ 通过" : "✗ 失败")}");
+                log.AppendLine($"  详情: {testDetail}");
+                if (testOk)
                 {
-                    var (testOk, testDetail) = TestEncoder(ffmpegPath, "libsvtav1");
-                    log.AppendLine($"  试编码结果: {(testOk ? "✓ 通过" : "✗ 失败")}");
-                    log.AppendLine($"  详情: {testDetail}");
-                    if (testOk) validated.Add("libsvtav1");
-                }
-                else
-                {
-                    log.AppendLine($"  跳过试编码（不在编码器列表中）");
+                    validated.Add(encoder);
+                    list.Add(new GpuEncoderOption
+                    {
+                        Value = encoder,
+                        DisplayName = EncodingHelper.GetEncoderLabel(encoder)
+                    });
                 }
             }
 
-            log.AppendLine($"\nGPU 选项: {string.Join(", ", list.Select(e => e.Value))}");
+            log.AppendLine($"\n编码器选项: {string.Join(", ", list.Select(e => e.Value))}");
             log.AppendLine($"已验证编码器: {string.Join(", ", validated)}");
             log.AppendLine($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] === 检测结束 ===");
             WriteEncoderLog(log);

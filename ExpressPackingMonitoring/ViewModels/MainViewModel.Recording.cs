@@ -96,6 +96,7 @@ namespace ExpressPackingMonitoring.ViewModels
 
             // 6. 保存元数据到数据库
             var filePath = _currentVideoFilePath;
+            var networkArchiveFilePath = _currentNetworkArchiveFilePath;
             var videoCodec = _currentVideoCodec;
             var videoEncoder = _currentVideoEncoder;
             var recordStart = _recordStartTime;
@@ -104,6 +105,12 @@ namespace ExpressPackingMonitoring.ViewModels
             var stopReason = _stopReason;
             var scanRecord = _currentScanRecord;
             var recordId = _currentRecordId; 
+            var integritySession = _recordingIntegritySession;
+            long encodedFrameCount = Interlocked.Read(ref _recordingFramesWritten);
+            int targetFps = Config.Fps;
+            int targetWidth = Config.FrameWidth;
+            int targetHeight = Config.FrameHeight;
+            string recordingProfile = RecordingProfileVerifier.BuildProfileKey(Config);
             var audioLogPath = _currentAudioLogPath;
             if (Config.EnableAudioRecording
                 && HasConfiguredAudioDevice()
@@ -117,11 +124,13 @@ namespace ExpressPackingMonitoring.ViewModels
             _recordStartTime = DateTime.MinValue;
             _currentScanRecord = null;
             _currentVideoFilePath = null;
+            _currentNetworkArchiveFilePath = null;
             _currentVideoCodec = null;
             _currentVideoEncoder = null;
             _currentRecordId = 0;
             _currentFfmpegProcess = null;
             _recordingOrderId = null;
+            _recordingIntegritySession = null;
 
             _lastFinalizeTask = Task.Run(() => 
             {
@@ -172,10 +181,67 @@ namespace ExpressPackingMonitoring.ViewModels
                         if (durSec < 1) durSec = 1;
                         string durStr = durSec < 60 ? $"{durSec}s" : $"{(int)durSec / 60}m {durSec % 60}s";
 
-                        _db?.UpdateVideoRecordOnStop(recordId, DateTime.Now, durSec, fileSize, stopReason, videoCodec, videoEncoder);
+                        DateTime recordingEndedAt = DateTime.Now;
+                        _db?.UpdateVideoRecordOnStop(recordId, recordingEndedAt, durSec, fileSize, stopReason, videoCodec, videoEncoder);
+
+                        RecordingProofResult? proof = null;
+                        try
+                        {
+                            if (!string.IsNullOrWhiteSpace(filePath) && File.Exists(filePath))
+                            {
+                                var metadata = new RecordingProofMetadata(
+                                    recordId,
+                                    orderId ?? "",
+                                    mode ?? "",
+                                    new DateTimeOffset(recordStart),
+                                    new DateTimeOffset(recordingEndedAt),
+                                    Config.FrameWidth,
+                                    Config.FrameHeight,
+                                    targetFps,
+                                    videoEncoder ?? "",
+                                    integritySession?.SessionId ?? "");
+                                proof = new RecordingIntegrityService()
+                                    .CreateProofAsync(filePath, metadata)
+                                    .GetAwaiter()
+                                    .GetResult();
+                                _db?.UpdateRecordingProof(recordId, proof.ProofFilePath, proof.VideoSha256);
+                                RuntimeLog.Info("Integrity", $"Recording proof created id={recordId}, file={Path.GetFileName(proof.ProofFilePath)}");
+                            }
+                        }
+                        catch (Exception proofError)
+                        {
+                            RuntimeLog.Error("Integrity", $"Recording proof failed id={recordId}", proofError);
+                            _ = Application.Current.Dispatcher.InvokeAsync(() =>
+                                AppDialog.ShowMessage(
+                                    null,
+                                    $"录像已保存，但防篡改证明生成失败：{proofError.Message}",
+                                    "录像证明异常",
+                                    AppDialogSeverity.Warning));
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(networkArchiveFilePath))
+                        {
+                            _db?.ConfigureNetworkArchive(
+                                recordId,
+                                filePath,
+                                networkArchiveFilePath,
+                                proof?.ProofFilePath ?? "",
+                                ready: proof != null);
+                            if (proof != null)
+                                _networkArchiveService?.Wake();
+                        }
 
                         // 自动将 MKV 转换为 MP4（无损容器转换）
                         RuntimeLog.Info("Recording", $"Recording finalized as MKV, queued for idle/web conversion: {Path.GetFileName(filePath)}");
+
+                        VerifyFirstRecordingForProfile(
+                            recordingProfile,
+                            targetFps,
+                            targetWidth,
+                            targetHeight,
+                            encodedFrameCount,
+                            dur,
+                            filePath ?? "");
 
                         _ = Application.Current.Dispatcher.InvokeAsync(() => {
                             if (!_isDisposed && scanRecord != null)
@@ -219,6 +285,11 @@ namespace ExpressPackingMonitoring.ViewModels
             return StorageLocationResolver.Resolve(Config, allowDefaultFallback: true);
         }
 
+        private RecordingStoragePlan ResolveRecordingStoragePlan()
+        {
+            return StorageLocationResolver.ResolveRecordingPlan(Config, allowDefaultFallback: true);
+        }
+
         private StorageLocationEvaluation TryEvaluateStorageLocation(StorageLocation loc)
         {
             string normalizedPath = NormalizeStoragePath(loc.Path);
@@ -230,16 +301,11 @@ namespace ExpressPackingMonitoring.ViewModels
                 if (!IsDirectoryWritable(normalizedPath))
                     return StorageLocationEvaluation.Skip(normalizedPath, "not writable");
 
-                string? root = Path.GetPathRoot(Path.GetFullPath(normalizedPath));
-                if (string.IsNullOrEmpty(root))
-                    return StorageLocationEvaluation.Skip(normalizedPath, "missing drive root");
+                if (!StorageVolumeInfo.TryGet(normalizedPath, out StorageVolumeInfo volume))
+                    return StorageLocationEvaluation.Skip(normalizedPath, "storage capacity unavailable");
 
-                var drive = new DriveInfo(root);
-                if (!drive.IsReady)
-                    return StorageLocationEvaluation.Skip(normalizedPath, "drive not ready");
-
-                long reserveBytes = StorageSpacePolicy.GetEffectiveReserveBytes(loc, drive);
-                long availableBytes = drive.AvailableFreeSpace;
+                long reserveBytes = StorageSpacePolicy.GetEffectiveReserveBytes(loc, volume);
+                long availableBytes = volume.AvailableFreeSpace;
                 if (availableBytes <= reserveBytes)
                 {
                     return StorageLocationEvaluation.Skip(
@@ -480,9 +546,11 @@ namespace ExpressPackingMonitoring.ViewModels
 
                 // 2. 初始化路径和文件名
                 string baseFolder;
+                RecordingStoragePlan storagePlan;
                 try
                 {
-                    baseFolder = ResolveBestStoragePath();
+                    storagePlan = ResolveRecordingStoragePlan();
+                    baseFolder = storagePlan.WorkingRootPath;
                     if (!IsDirectoryWritable(baseFolder))
                     {
                         ShowToast("警告：存储路径不可写，请检查磁盘");
@@ -509,18 +577,20 @@ namespace ExpressPackingMonitoring.ViewModels
 
                 string fileName = $"{CurrentOrderId}_{DateTime.Now:yyyyMMdd_HHmmss}_{CurrentMode}.mkv";
                 string filePath = Path.Combine(dateFolder, fileName);
+                string networkArchiveFilePath = storagePlan.RequiresNetworkArchive
+                    ? Path.Combine(storagePlan.FinalRootPath, DateTime.Now.ToString("yyyy-MM-dd"), fileName)
+                    : "";
                 string audioFilePath = Path.ChangeExtension(filePath, ".wav");
                 string audioLogPath = Path.ChangeExtension(filePath, ".audio.log");
-                RuntimeLog.Info("Recording", $"Start requested order={CurrentOrderId}, mode={CurrentMode}, file={fileName}, codec={Config.VideoCodec}");
+                RuntimeLog.Info("Recording", $"Start requested order={CurrentOrderId}, mode={CurrentMode}, file={fileName}, encoder={Config.VideoEncoder}");
                 _currentAudioLogPath = audioLogPath;
                 _audioFailedForCurrentRecording = false;
                 _currentVideoFilePath = filePath;
+                _currentNetworkArchiveFilePath = networkArchiveFilePath;
                 _stopReason = "手动";
                 _recordingOrderId = CurrentOrderId;
+                _recordingIntegritySession = new RecordingIntegritySession();
                 _recordingMode = CurrentMode;
-                _currentVideoCodec = Config.VideoCodec?.Trim().ToLowerInvariant() ?? "h264";
-                _currentVideoEncoder = ResolveEncoder();
-
                 string ffmpegPath = FindFFmpeg();
                 if (string.IsNullOrEmpty(ffmpegPath))
                 {
@@ -528,6 +598,21 @@ namespace ExpressPackingMonitoring.ViewModels
                     ClearCurrentAudioLogPath(audioLogPath);
                     return;
                 }
+
+                if (!TryResolveEncoderForStart(ffmpegPath, out string selectedEncoder))
+                {
+                    ClearCurrentAudioLogPath(audioLogPath);
+                    _currentVideoFilePath = null;
+                    _currentNetworkArchiveFilePath = null;
+                    AppDialog.ShowMessage(
+                        null,
+                        "所选编码器不可用，请重新检测或选择其他编码器",
+                        "编码器不可用",
+                        AppDialogSeverity.Warning);
+                    return;
+                }
+                _currentVideoEncoder = selectedEncoder;
+                _currentVideoCodec = EncodingHelper.GetCodecFromEncoder(selectedEncoder);
 
                 // 3. 开启新的生产者-消费者通道
                 lock (_videoLock)
@@ -549,6 +634,7 @@ namespace ExpressPackingMonitoring.ViewModels
 
                 // 4. 启动录制任务
                 _recordingStartTimestamp = Stopwatch.GetTimestamp();
+                Interlocked.Exchange(ref _recordingFramesWritten, 0);
                 _firstRecordingFrameWritten = new TaskCompletionSource<long>(TaskCreationOptions.RunContinuationsAsynchronously);
                 _writeTask = Task.Run(() => BackgroundFFmpegRecordingLoop(filePath, ffmpegPath, _writeCts.Token));
 
@@ -616,6 +702,8 @@ namespace ExpressPackingMonitoring.ViewModels
                     orderInfoSnapshot,
                     Config.MobileBackupComputerId,
                     Environment.MachineName) ?? 0;
+                if (_currentRecordId > 0 && !string.IsNullOrWhiteSpace(networkArchiveFilePath))
+                    _db?.ConfigureNetworkArchive(_currentRecordId, filePath, networkArchiveFilePath, ready: false);
                 RuntimeLog.Info("Recording", $"Database record inserted id={_currentRecordId}, file={Path.GetFileName(filePath)}");
 
                 ShowToast("提示：开始录像");
@@ -634,13 +722,14 @@ namespace ExpressPackingMonitoring.ViewModels
             int w = Config.FrameWidth;
             int h = Config.FrameHeight;
             int fps = _actualCameraFps > 0 ? _actualCameraFps : Config.Fps;
-            string encoder = ResolveEncoder();
+            string encoder = _currentVideoEncoder ?? ResolveEncoder();
             bool hasAudio = false;
             string requestedEncoder = encoder;
             string? firstError = null;
 
             var (ok, err) = RunFFmpegPipeline(filePath, ffmpegPath, token, w, h, fps, encoder, hasAudio);
-            if (!ok && !token.IsCancellationRequested)
+            bool allowAutomaticFallback = EncodingHelper.AllowsAutomaticFallback(Config);
+            if (!ok && !token.IsCancellationRequested && allowAutomaticFallback)
             {
                 firstError = err;
                 string fallbackEncoder = GetCpuEncoder();
@@ -699,7 +788,9 @@ namespace ExpressPackingMonitoring.ViewModels
                     SpeakWarning(DefaultSpeechCatalog.RecordingFailed);
                     AppDialog.ShowMessage(
                         null,
-                        $"当前设置的编码器无法完成录制，视频未保存。\n\n请求编码器: {EncodingHelper.GetEncoderLabel(requestedEncoder)}\n错误详情: {errorDetail}\n\n已自动尝试 CPU 软编码；若仍失败，请检查摄像头画面和存储路径。",
+                        allowAutomaticFallback
+                            ? $"自动选择的编码器无法完成录制，视频未保存。\n\n请求编码器: {EncodingHelper.GetEncoderLabel(requestedEncoder)}\n错误详情: {errorDetail}\n\n已自动尝试可用的 CPU 编码；请重新进行性能检测。"
+                            : $"所选编码器不可用，请重新检测或选择其他编码器。\n\n所选编码器: {EncodingHelper.GetEncoderLabel(requestedEncoder)}\n错误详情: {errorDetail}",
                         "录制失败", AppDialogSeverity.Warning);
                 });
             }
@@ -754,7 +845,11 @@ namespace ExpressPackingMonitoring.ViewModels
 
                 if (frame == null) return;
                 if (Config.EnableWatermark)
-                    ApplyWatermarkToFrame(frame, DateTimeOffset.Now, _recordingOrderId);
+                {
+                    DateTimeOffset watermarkTime = DateTimeOffset.Now;
+                    string proofCode = _recordingIntegritySession?.GetCode(watermarkTime, _recordingOrderId) ?? "";
+                    ApplyWatermarkToFrame(frame, watermarkTime, _recordingOrderId, proofCode);
+                }
                 if (!queue.TryAdd(frame, 5))
                     frame.Dispose();
             }
@@ -849,6 +944,7 @@ namespace ExpressPackingMonitoring.ViewModels
                                 // 此处可能会抛出 IOException/InvalidOperationException，标志着管道断开
                                 stdin.Write(buffer, 0, expectedBytes);
                                 anyFrameWritten = true;
+                                Interlocked.Increment(ref _recordingFramesWritten);
                                 var firstFrameSignal = _firstRecordingFrameWritten;
                                 if (firstFrameSignal != null && !firstFrameSignal.Task.IsCompleted)
                                 {
@@ -2601,27 +2697,92 @@ namespace ExpressPackingMonitoring.ViewModels
 
         private string ResolveEncoder()
         {
-            string codec = Config.VideoCodec?.Trim().ToLowerInvariant() ?? "h264";
-            if (codec != "h264" && codec != "h265" && codec != "av1") codec = "h264";
-            string cpuEncoder = codec switch { "h265" => "libx265", "av1" => "libsvtav1", _ => "libx264" };
-
-            string gpu = EncodingHelper.NormalizeGpuSetting(Config.GpuEncoder?.Trim().ToLowerInvariant() ?? "auto");
-
-            if (gpu != "auto")
+            string configured = AppConfig.NormalizeVideoEncoder(Config.VideoEncoder);
+            if (configured != "auto")
             {
-                string encoder = EncodingHelper.ResolveRequestedEncoder(gpu, codec);
-                if (encoder == cpuEncoder || (ValidatedEncoders != null && ValidatedEncoders.Contains(encoder)))
-                    return encoder;
-                return cpuEncoder;
+                if (ValidatedEncoders != null && ValidatedEncoders.Contains(configured))
+                    return configured;
+                throw new InvalidOperationException("所选编码器不可用，请重新检测或选择其他编码器");
             }
 
-            foreach (var g in new[] { "nvidia", "amd", "intel" })
+            string[] preference =
+            [
+                "h264_nvenc", "h264_amf", "h264_qsv",
+                "hevc_nvenc", "hevc_amf", "hevc_qsv",
+                "av1_nvenc", "av1_amf", "av1_qsv",
+                "libx264", "libx265", "libsvtav1"
+            ];
+            return preference.FirstOrDefault(encoder => ValidatedEncoders?.Contains(encoder) == true)
+                ?? "libx264";
+        }
+
+        private void VerifyFirstRecordingForProfile(
+            string recordingProfile,
+            int targetFps,
+            int targetWidth,
+            int targetHeight,
+            long encodedFrameCount,
+            double durationSeconds,
+            string filePath)
+        {
+            if (string.Equals(Config.LastValidatedRecordingProfile, recordingProfile, StringComparison.Ordinal))
+                return;
+
+            bool outputExists = !string.IsNullOrWhiteSpace(filePath) && File.Exists(filePath);
+            RecordingMediaProbeResult probe = RecordingProfileVerifier.Probe(FindFFmpeg(), filePath);
+            RecordingProfileVerificationResult result = RecordingProfileVerifier.Evaluate(
+                targetFps,
+                encodedFrameCount,
+                durationSeconds,
+                outputExists,
+                targetWidth,
+                targetHeight,
+                probe);
+            RuntimeLog.Info(
+                "RecordingPerformance",
+                $"First-recording verification profile={recordingProfile}, frames={encodedFrameCount}, duration={durationSeconds:F2}, result={result.Message}");
+
+            if (result.Passed)
             {
-                string encoder = EncodingHelper.ResolveRequestedEncoder(g, codec);
-                if (ValidatedEncoders != null && ValidatedEncoders.Contains(encoder))
-                    return encoder;
+                Config.LastValidatedRecordingProfile = recordingProfile;
+                SaveConfig();
+                return;
             }
-            return cpuEncoder;
+
+            _ = Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                if (_isDisposed) return;
+                bool openSettings = AppDialog.Confirm(
+                    null,
+                    $"{result.Message}\n\n建议运行性能检测并采用推荐配置。是否立即打开录像设置？",
+                    "录像性能复检",
+                    confirmText: "打开设置",
+                    cancelText: "稍后处理",
+                    severity: AppDialogSeverity.Warning);
+                if (openSettings)
+                    OpenPerformanceSettings();
+            });
+        }
+
+        private bool TryResolveEncoderForStart(string ffmpegPath, out string encoder)
+        {
+            encoder = "";
+            try
+            {
+                encoder = ResolveEncoder();
+                if (AppConfig.NormalizeVideoEncoder(Config.VideoEncoder) == "auto")
+                    return true;
+
+                (bool ok, string detail) = TestEncoder(ffmpegPath, encoder);
+                if (!ok)
+                    RuntimeLog.Warn("Encoder", $"Fixed encoder validation failed encoder={encoder}, detail={detail}");
+                return ok;
+            }
+            catch (Exception ex)
+            {
+                RuntimeLog.Warn("Encoder", $"Fixed encoder unavailable: {ex.Message}");
+                return false;
+            }
         }
     }
 }

@@ -101,7 +101,7 @@ namespace ExpressPackingMonitoring.Config
 
         // 录像方式："CameraMonitor"=使用电脑摄像头录像，"PrintStation"=不使用电脑摄像头（兼容旧配置），空值表示首次启动需要选择。
         public string WorkstationRole { get; set; } = "";
-        // 主程序实际运行目录。发布包中指向 app 目录，供手动增量更新包定位安装目标。
+        // 主程序实际运行目录。发布包中指向 app 目录，供安装和卸载维护定位。
         public string AppRootDirectory { get; set; } = "";
         public string PrintStationMonitorAddress { get; set; } = "";
         public bool FirstUseWizardCompleted { get; set; } = false;
@@ -127,7 +127,9 @@ namespace ExpressPackingMonitoring.Config
         public bool EnableAutoStop { get; set; } = true;
         public double AutoStopMinutes { get; set; } = 1.0;
         public bool EnableMaxDuration { get; set; } = false;
-        public double MaxDurationMinutes { get; set; } = 5.0;
+        // MaxDurationMinutes is retained for one compatibility cycle. New code uses seconds.
+        public double MaxDurationMinutes { get; set; } = 1.0;
+        public int MaxDurationSeconds { get; set; } = 60;
         public double MinRecordingSeconds { get; set; } = 3.0;
         public int MinVideoFileSizeKB { get; set; } = 50;
         public bool EnableCameraIdle { get; set; } = true;
@@ -152,15 +154,24 @@ namespace ExpressPackingMonitoring.Config
         public bool ShowAdvancedSettings { get; set; } = false;
         public bool ShowDeletedVideos { get; set; } = true;
         public bool AutoStartOnBoot { get; set; } = true;
-        public bool EnableAutoCheckUpdate { get; set; } = true;
         public bool EnableAudioRecording { get; set; } = true;
         public string AudioDeviceName { get; set; } = "";
         public string AudioDeviceMoniker { get; set; } = "";
         public int AudioSyncOffsetMs { get; set; } = 0;
         public double BarcodeCooldownSeconds { get; set; } = 2.0;
-        public string GpuEncoder { get; set; } = "nvidia";
-        public string VideoCodec { get; set; } = "h265"; // "h264" or "h265"
+        // GpuEncoder/VideoCodec are retained for migration from older configurations.
+        public string GpuEncoder { get; set; } = "auto";
+        public string VideoCodec { get; set; } = "h264";
+        public string VideoEncoder { get; set; } = "auto";
         public int VideoCqp { get; set; } = 30;
+        // A changed camera/encoder profile is verified against the first completed real recording.
+        public string LastValidatedRecordingProfile { get; set; } = "";
+
+        // Recording storage policy. Capacity limiting is opt-in; date retention is the default.
+        public string LocalRecordingBufferPath { get; set; } = AppPaths.RecordingBufferDir;
+        public int MaxRetentionDays { get; set; } = 90;
+        public bool EnableMaxStorageUsage { get; set; } = false;
+        public double MaxStorageUsageGB { get; set; } = 0.0;
 
         // 全局键盘监听（后台接收扫码枪）
         public bool EnableGlobalKeyboard { get; set; } = true;
@@ -435,6 +446,96 @@ namespace ExpressPackingMonitoring.Config
                 }
             }
 
+            if (string.IsNullOrWhiteSpace(config.LocalRecordingBufferPath))
+            {
+                config.LocalRecordingBufferPath = AppPaths.RecordingBufferDir;
+                changed = true;
+            }
+
+            int normalizedRetentionDays = System.Math.Max(15, config.MaxRetentionDays);
+            if (config.MaxRetentionDays != normalizedRetentionDays)
+            {
+                config.MaxRetentionDays = normalizedRetentionDays;
+                changed = true;
+            }
+
+            double normalizedMaxStorageUsageGB = config.MaxStorageUsageGB;
+            if (double.IsNaN(normalizedMaxStorageUsageGB)
+                || double.IsInfinity(normalizedMaxStorageUsageGB)
+                || normalizedMaxStorageUsageGB < 0)
+            {
+                normalizedMaxStorageUsageGB = 0;
+            }
+            if (System.Math.Abs(config.MaxStorageUsageGB - normalizedMaxStorageUsageGB) > 0.001)
+            {
+                config.MaxStorageUsageGB = normalizedMaxStorageUsageGB;
+                changed = true;
+            }
+            if (config.EnableMaxStorageUsage && config.MaxStorageUsageGB <= 0)
+            {
+                config.EnableMaxStorageUsage = false;
+                changed = true;
+            }
+
+            int normalizedMaxDurationSeconds = config.MaxDurationSeconds;
+            // Older configurations serialized MaxDurationMinutes but do not contain MaxDurationSeconds.
+            // Preserve an enabled non-default legacy value; disabled configurations adopt the new 60-second preset.
+            if (config.EnableMaxDuration
+                && normalizedMaxDurationSeconds == 60
+                && config.MaxDurationMinutes > 0
+                && System.Math.Abs(config.MaxDurationMinutes - 1.0) > 0.001)
+            {
+                normalizedMaxDurationSeconds = (int)System.Math.Round(config.MaxDurationMinutes * 60.0);
+            }
+            normalizedMaxDurationSeconds = System.Math.Clamp(normalizedMaxDurationSeconds, 15, 600);
+            if (config.MaxDurationSeconds != normalizedMaxDurationSeconds)
+            {
+                config.MaxDurationSeconds = normalizedMaxDurationSeconds;
+                changed = true;
+            }
+            double synchronizedLegacyMinutes = normalizedMaxDurationSeconds / 60.0;
+            if (System.Math.Abs(config.MaxDurationMinutes - synchronizedLegacyMinutes) > 0.001)
+            {
+                config.MaxDurationMinutes = synchronizedLegacyMinutes;
+                changed = true;
+            }
+
+            string normalizedVideoEncoder = NormalizeVideoEncoder(config.VideoEncoder);
+            if (normalizedVideoEncoder == "auto"
+                && (!string.Equals(config.GpuEncoder, "auto", StringComparison.OrdinalIgnoreCase)
+                    || !string.Equals(config.VideoCodec, "h264", StringComparison.OrdinalIgnoreCase)))
+            {
+                normalizedVideoEncoder = ResolveLegacyVideoEncoder(config.GpuEncoder, config.VideoCodec);
+            }
+            if (!string.Equals(config.VideoEncoder, normalizedVideoEncoder, StringComparison.Ordinal))
+            {
+                config.VideoEncoder = normalizedVideoEncoder;
+                changed = true;
+            }
+
+            string synchronizedGpu = EncoderGpuFromId(normalizedVideoEncoder);
+            string synchronizedCodec = EncoderCodecFromId(normalizedVideoEncoder);
+            if (!string.Equals(config.GpuEncoder, synchronizedGpu, StringComparison.Ordinal))
+            {
+                config.GpuEncoder = synchronizedGpu;
+                changed = true;
+            }
+            if (!string.Equals(config.VideoCodec, synchronizedCodec, StringComparison.Ordinal))
+            {
+                config.VideoCodec = synchronizedCodec;
+                changed = true;
+            }
+
+            if (config.EncoderOptionsCache?.Any(option =>
+                    option == null || (NormalizeVideoEncoder(option.Value) == "auto"
+                        && !string.Equals(option.Value, "auto", StringComparison.OrdinalIgnoreCase))) == true)
+            {
+                config.EncoderOptionsCache = new List<GpuEncoderOption>();
+                config.ValidatedEncodersCache = new List<string>();
+                config.IsEncoderDetected = false;
+                changed = true;
+            }
+
             if (config.EnableGlobalKeyboard && config.EnableScannerAutoSubmit)
             {
                 config.EnableGlobalKeyboard = false;
@@ -491,6 +592,56 @@ namespace ExpressPackingMonitoring.Config
 
             return changed;
         }
+
+        internal static string NormalizeVideoEncoder(string? value)
+        {
+            string normalized = value?.Trim().ToLowerInvariant() ?? "";
+            return normalized is "auto"
+                or "libx264" or "libx265" or "libsvtav1"
+                or "h264_qsv" or "hevc_qsv" or "av1_qsv"
+                or "h264_nvenc" or "hevc_nvenc" or "av1_nvenc"
+                or "h264_amf" or "hevc_amf" or "av1_amf"
+                ? normalized
+                : "auto";
+        }
+
+        private static string ResolveLegacyVideoEncoder(string? gpu, string? codec)
+        {
+            string normalizedGpu = gpu?.Trim().ToLowerInvariant() ?? "auto";
+            string normalizedCodec = codec?.Trim().ToLowerInvariant() ?? "h264";
+            return (normalizedGpu, normalizedCodec) switch
+            {
+                ("nvidia", "h264") => "h264_nvenc",
+                ("nvidia", "h265") => "hevc_nvenc",
+                ("nvidia", "av1") => "av1_nvenc",
+                ("amd", "h264") => "h264_amf",
+                ("amd", "h265") => "hevc_amf",
+                ("amd", "av1") => "av1_amf",
+                ("intel", "h264") => "h264_qsv",
+                ("intel", "h265") => "hevc_qsv",
+                ("intel", "av1") => "av1_qsv",
+                ("cpu", "h265") => "libx265",
+                ("cpu", "av1") => "libsvtav1",
+                ("cpu", _) => "libx264",
+                _ => "auto"
+            };
+        }
+
+        private static string EncoderGpuFromId(string encoder) => encoder switch
+        {
+            "h264_nvenc" or "hevc_nvenc" or "av1_nvenc" => "nvidia",
+            "h264_amf" or "hevc_amf" or "av1_amf" => "amd",
+            "h264_qsv" or "hevc_qsv" or "av1_qsv" => "intel",
+            "libx264" or "libx265" or "libsvtav1" => "cpu",
+            _ => "auto"
+        };
+
+        private static string EncoderCodecFromId(string encoder) => encoder switch
+        {
+            "libx265" or "hevc_nvenc" or "hevc_amf" or "hevc_qsv" => "h265",
+            "libsvtav1" or "av1_nvenc" or "av1_amf" or "av1_qsv" => "av1",
+            _ => "h264"
+        };
 
         private static List<StorageLocation> CreateDefaultStorageLocations()
         {

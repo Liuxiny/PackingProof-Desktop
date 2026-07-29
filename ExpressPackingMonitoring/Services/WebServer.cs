@@ -1700,17 +1700,12 @@ namespace ExpressPackingMonitoring.Services
             {
                 if (Directory.Exists(normalizedPath))
                 {
-                    string root = Path.GetPathRoot(Path.GetFullPath(normalizedPath));
-                    if (!string.IsNullOrEmpty(root))
+                    if (StorageVolumeInfo.TryGet(normalizedPath, out StorageVolumeInfo volume))
                     {
-                        var drive = new DriveInfo(root);
-                        available = drive.IsReady;
-                        if (available)
-                        {
-                            long reserveBytes = StorageSpacePolicy.GetEffectiveReserveBytes(loc, drive);
-                            capacityBytes = Math.Max(0, drive.AvailableFreeSpace - reserveBytes)
-                                + GetDirectoryVideoBytes(normalizedPath);
-                        }
+                        available = true;
+                        long reserveBytes = StorageSpacePolicy.GetEffectiveReserveBytes(loc, volume);
+                        capacityBytes = Math.Max(0, volume.AvailableFreeSpace - reserveBytes)
+                            + GetDirectoryVideoBytes(normalizedPath);
                     }
                 }
             }

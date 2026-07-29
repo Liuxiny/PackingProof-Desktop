@@ -22,6 +22,10 @@
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <SatelliteResourceLanguages>en-US;zh-Hans</SatelliteResourceLanguages>
     <ApplicationIcon>app.ico</ApplicationIcon>
+    <Version>0.0.30</Version>
+    <AssemblyVersion>0.0.30.0</AssemblyVersion>
+    <FileVersion>0.0.30.0</FileVersion>
+    <InformationalVersion>0.0.30</InformationalVersion>
     <GitCommitId Condition="'$(GitCommitId)' == ''">$(SourceRevisionId)</GitCommitId>
   </PropertyGroup>
 
@@ -98,6 +102,8 @@
     <Compile Include="Config\AppVersion.cs" />
     <Compile Include="Config\DeploymentPreset.cs" />
     <Compile Include="Config\StorageSpacePolicy.cs" />
+    <Compile Include="Config\StorageRetentionPolicy.cs" />
+    <Compile Include="Config\StorageVolumeInfo.cs" />
     <Compile Include="Data\MkvConversionResult.cs" />
     <Compile Include="Data\MkvConversionTracking.cs" />
     <Compile Include="Data\VideoDatabase.cs" />
@@ -107,8 +113,6 @@
     <Compile Include="Input\ScannerAutoSubmitPolicy.cs" />
     <Compile Include="Logging\RuntimeLog.cs" />
     <Compile Include="Localization\AppLanguage.cs" />
-    <Compile Include="Services\UpdateCheckOptions.cs" />
-    <Compile Include="Services\UpdateCheckService.cs" />
     <Compile Include="Services\UninstallCleanupService.cs" />
     <Compile Include="Services\AlertService.cs" />
     <Compile Include="Services\AutoStartService.cs" />
@@ -118,16 +122,22 @@
     <Compile Include="Services\MobileConnectionService.cs" />
     <Compile Include="Services\MobileAppUpdatePolicyProvider.cs" />
     <Compile Include="Services\MobileBackupService.cs" />
+    <Compile Include="Services\NetworkArchiveService.cs" />
     <Compile Include="Services\MobileOrderReceiverRegistry.cs" />
     <Compile Include="Services\NoCameraWorkstationHost.cs" />
     <Compile Include="Services\PackingProofNodeInfo.cs" />
     <Compile Include="Services\RecordingDeviceCatalog.cs" />
+    <Compile Include="Services\RecordingPerformanceService.cs" />
+    <Compile Include="Services\RecordingProfileVerifier.cs" />
+    <Compile Include="Services\RecordingIntegrityService.cs" />
     <Compile Include="Services\TrayIconService.cs" />
     <Compile Include="Services\UserscriptGuideNavigation.cs" />
     <Compile Include="Services\UserscriptTargetState.cs" />
     <Compile Include="Services\ShortLivedSnapshotCache.cs" />
     <Compile Include="Services\StorageLocationResolver.cs" />
     <Compile Include="Services\VideoClipService.cs" />
+    <Compile Include="Services\VideoFileResolver.cs" />
+    <Compile Include="Services\VideoLifecycleCoordinator.cs" />
     <Compile Include="Services\WebServer.cs" />
     <Compile Include="Themes\ThemeManager.cs" />
     <Compile Include="ViewModels\MainViewModel.Cleanup.cs" />
@@ -140,7 +150,7 @@
     <Compile Include="UI\ConfirmDialog.xaml.cs" />
     <Compile Include="UI\CloseBehaviorDialog.xaml.cs" />
     <Compile Include="UI\CameraBarcodeUpgradeDialog.xaml.cs" />
-    <Compile Include="UI\DriveSelectionDialog.cs" />
+    <Compile Include="UI\StoragePathSelectionDialog.cs" />
     <Compile Include="UI\FirstUseSetupWizardWindow.xaml.cs" />
     <Compile Include="UI\MainWindow.xaml.cs" />
     <Compile Include="UI\MarkdownFlowDocumentRenderer.cs" />
@@ -150,7 +160,6 @@
     <Compile Include="UI\SettingsWindow.xaml.cs" />
     <Compile Include="UI\SettingsContext.cs" />
     <Compile Include="UI\StatisticsWindow.xaml.cs" />
-    <Compile Include="UI\UpdateAvailableDialog.xaml.cs" />
     <Compile Include="Workstations\PrintToolInstallGuide.cs" />
     <Compile Include="Workstations\WorkstationInstanceCoordinator.cs" />
     <Compile Include="Workstations\PrintWorkstationWindow.xaml.cs" />

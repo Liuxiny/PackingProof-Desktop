@@ -569,16 +569,14 @@ public partial class PrintWorkstationWindow : Window
     {
         try
         {
-            string? root = Path.GetPathRoot(Path.GetFullPath(storagePath));
-            if (string.IsNullOrWhiteSpace(root)) return (0, "暂不可用");
-            var drive = new DriveInfo(root);
-            if (drive.TotalSize <= 0) return (0, "暂不可用");
+            if (!StorageVolumeInfo.TryGet(storagePath, out StorageVolumeInfo volume) || volume.TotalSize <= 0)
+                return (0, "暂不可用");
             double percent = Math.Clamp(
-                (drive.TotalSize - drive.AvailableFreeSpace) * 100d / drive.TotalSize,
+                (volume.TotalSize - volume.AvailableFreeSpace) * 100d / volume.TotalSize,
                 0,
                 100);
-            double usedGB = (drive.TotalSize - drive.AvailableFreeSpace) / 1024d / 1024d / 1024d;
-            double totalGB = drive.TotalSize / 1024d / 1024d / 1024d;
+            double usedGB = (volume.TotalSize - volume.AvailableFreeSpace) / 1024d / 1024d / 1024d;
+            double totalGB = volume.TotalSize / 1024d / 1024d / 1024d;
             return (percent, $"{usedGB:F1} / {totalGB:F1} GB");
         }
         catch

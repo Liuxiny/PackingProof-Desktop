@@ -6,114 +6,41 @@ namespace ExpressPackingMonitoring.Tests;
 public sealed class ReleasePackagingPolicyTests
 {
     [Fact]
-    public void Packaging_WarnsButDoesNotBlockWhenManualChecksAreUnconfirmed()
+    public void DesktopRuntime_ContainsNoAutomaticUpdateImplementation()
     {
-        string repositoryRoot = FindRepositoryRoot();
-        string publishScript = File.ReadAllText(
-            Path.Combine(repositoryRoot, "Tools", "Publish-CleanPackage.ps1"),
+        string root = FindRepositoryRoot();
+        string launcher = File.ReadAllText(
+            Path.Combine(root, "ExpressPackingMonitoring.Launcher", "Program.cs"),
             Encoding.UTF8);
-        string incrementalScript = File.ReadAllText(
-            Path.Combine(repositoryRoot, "打包脚本-增量.bat"),
+        string project = File.ReadAllText(
+            Path.Combine(root, "ExpressPackingMonitoring", "ExpressPackingMonitoring.csproj"),
             Encoding.UTF8);
-        string baselineScript = File.ReadAllText(
-            Path.Combine(repositoryRoot, "打包脚本-基线.bat"),
+        string settings = File.ReadAllText(
+            Path.Combine(root, "ExpressPackingMonitoring", "UI", "SettingsWindow.xaml"),
             Encoding.UTF8);
 
-        Assert.Contains("Packaging will continue", publishScript);
-        Assert.DoesNotContain("throw \"Manual core business", publishScript);
-        Assert.DoesNotContain("choice /C YN", incrementalScript);
-        Assert.DoesNotContain("-ConfirmManualCoreChecks", incrementalScript);
-        Assert.DoesNotContain("choice /C YN", baselineScript);
-        Assert.DoesNotContain("-ConfirmManualCoreChecks", baselineScript);
+        Assert.DoesNotContain("HttpClient", launcher, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("AppPatch", launcher, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("UpdateCheckService", project, StringComparison.Ordinal);
+        Assert.DoesNotContain("EnableAutoCheckUpdate", settings, StringComparison.Ordinal);
+        Assert.False(File.Exists(Path.Combine(root, "ExpressPackingMonitoring", "Services", "UpdateCheckService.cs")));
     }
 
     [Fact]
-    public void Packaging_SeparatesAutomaticPatchAndManualUpdatePackage()
+    public void Packaging_ProducesOnlyUserInitiatedCompletePackages()
     {
-        string repositoryRoot = FindRepositoryRoot();
+        string root = FindRepositoryRoot();
         string publishScript = File.ReadAllText(
-            Path.Combine(repositoryRoot, "Tools", "Publish-CleanPackage.ps1"),
-            Encoding.UTF8);
-        string stagingScript = File.ReadAllText(
-            Path.Combine(repositoryRoot, "Tools", "Stage-AppPatch.ps1"),
-            Encoding.UTF8);
-        string installerCmd = File.ReadAllText(
-            Path.Combine(repositoryRoot, "Tools", "Install-AppPatch.cmd"),
+            Path.Combine(root, "Tools", "Publish-CleanPackage.ps1"),
             Encoding.UTF8);
 
-        Assert.Contains("ExpressPackingMonitoring_ManualUpdate_", publishScript);
-        Assert.Contains("双击准备增量更新.cmd", publishScript);
-        Assert.Contains("stage_app_patch.ps1", publishScript);
-        Assert.Contains("手动增量更新说明.txt", publishScript);
-        Assert.Contains("此文件由软件自动更新使用.txt", publishScript);
-        Assert.Contains("update_manifest.json", publishScript);
-        Assert.Contains("Get-FileSha256", stagingScript);
-        Assert.Contains("System.Security.Cryptography.SHA256", stagingScript);
-        Assert.Contains(@"cache\updates", stagingScript);
-        Assert.Contains("pending", stagingScript);
-        Assert.DoesNotContain("AppRootDirectory", stagingScript);
-        Assert.DoesNotContain("config.json", stagingScript);
-        Assert.DoesNotContain("Resolve-AppRootCandidate", stagingScript);
-        Assert.Contains("stage_app_patch.ps1", installerCmd);
-        Assert.Contains("powershell.exe", installerCmd);
-        Assert.DoesNotContain("taskkill", installerCmd, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void WindowsInstaller_UsesFixedPerUserIdentityAndSafeReleaseInputs()
-    {
-        string repositoryRoot = FindRepositoryRoot();
-        string innoScript = File.ReadAllText(
-            Path.Combine(repositoryRoot, "Installer", "ExpressPackingMonitoring.iss"),
-            Encoding.UTF8);
-        string chineseMessages = File.ReadAllText(
-            Path.Combine(repositoryRoot, "Installer", "Languages", "ChineseSimplified.isl"),
-            Encoding.UTF8);
-        string buildScript = File.ReadAllText(
-            Path.Combine(repositoryRoot, "Tools", "Build-Installer.ps1"),
-            Encoding.UTF8);
-        string publishScript = File.ReadAllText(
-            Path.Combine(repositoryRoot, "Tools", "Publish-CleanPackage.ps1"),
-            Encoding.UTF8);
-
-        Assert.Contains("99E9FCE3-C8FE-4D7A-9FA4-BC9CB9186B05", innoScript);
-        Assert.Contains(@"DefaultDirName={localappdata}\Programs\ExpressPackingMonitoring", innoScript);
-        Assert.Contains("DisableDirPage=yes", innoScript);
-        Assert.Contains("PrivilegesRequired=lowest", innoScript);
-        Assert.Contains("ArchitecturesAllowed=x64compatible", innoScript);
-        Assert.Contains("CloseApplications=yes", innoScript);
-        Assert.DoesNotContain("CloseApplications=force", innoScript);
-        Assert.Contains(@"MessagesFile: ""Languages\ChineseSimplified.isl""", innoScript);
-        Assert.Contains("LanguageName=简体中文", chineseMessages);
-        Assert.Contains("ButtonNext=下一步", chineseMessages);
-        Assert.Contains(@"Filename: ""{app}\{#MyAppExeName}""; WorkingDir: ""{app}""", innoScript);
-        Assert.Contains("--uninstall-plan-recordings", innoScript);
-        Assert.Contains("--uninstall-delete-recordings", innoScript);
-        Assert.Contains("MB_DEFBUTTON2", innoScript);
-        Assert.DoesNotContain("WizardSilent", innoScript);
-
-        Assert.Contains("INNO_SETUP_ISCC", buildScript);
-        Assert.Contains("InstallerCompression = \"lzma2/max\"", buildScript);
-        Assert.Contains("winget install --id JRSoftware.InnoSetup", buildScript);
-        Assert.Contains("WINDOWS_SIGN_CERT_THUMBPRINT", buildScript);
-        Assert.Contains("Get-AuthenticodeSignature", buildScript);
-        Assert.Contains("config.json", buildScript);
-        Assert.Contains("videos.db", buildScript);
-
-        Assert.Contains("ExpressPackingMonitoring_Setup_$releaseTag.exe", publishScript);
         Assert.Contains("Build-Installer.ps1", publishScript);
-        Assert.Contains("SmartScreen", publishScript);
-        Assert.Contains("GitHub 默认上传", publishScript);
-        Assert.Contains("Gitee 手工上传", publishScript);
-        Assert.Contains("Setup、完整 7z 和完整 ZIP 使用 Full download page", publishScript);
-        Assert.Contains("SEVEN_ZIP_EXE", publishScript);
-        Assert.Contains("winget install --id 7zip.7zip", publishScript);
+        Assert.Contains("Compress-Archive", publishScript);
         Assert.Contains("-t7z", publishScript);
-        Assert.Contains("SevenZipCompressionLevel = 5", publishScript);
-        Assert.Contains("\"-mx=$CompressionLevel\"", publishScript);
-        Assert.Contains("-InstallerCompression $InstallerCompression", publishScript);
-        Assert.Contains("-m0=lzma2", publishScript);
-        Assert.Contains("-ms=on", publishScript);
+        Assert.DoesNotContain("update_$releaseTag.json", publishScript, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("New-AppPatchPackage", publishScript, StringComparison.Ordinal);
+        Assert.False(File.Exists(Path.Combine(root, "Tools", "Stage-AppPatch.ps1")));
+        Assert.False(File.Exists(Path.Combine(root, "Tools", "Install-AppPatch.cmd")));
     }
 
     private static string FindRepositoryRoot()
@@ -122,13 +49,9 @@ public sealed class ReleasePackagingPolicyTests
         while (directory is not null)
         {
             if (File.Exists(Path.Combine(directory.FullName, "ExpressPackingMonitoring.sln")))
-            {
                 return directory.FullName;
-            }
-
             directory = directory.Parent;
         }
-
-        throw new DirectoryNotFoundException("Repository root was not found.");
+        throw new DirectoryNotFoundException("Repository root was not found");
     }
 }

@@ -1,5 +1,6 @@
 using ExpressPackingMonitoring.Logging;
 using ExpressPackingMonitoring.Services;
+using System.Diagnostics;
 using System.Windows;
 
 namespace ExpressPackingMonitoring.UI;
@@ -55,7 +56,7 @@ internal static class MobileAppUpdatePrompt
     {
         try
         {
-            UpdateCheckService.OpenDownloadPage(downloadUrl);
+            Process.Start(new ProcessStartInfo(downloadUrl) { UseShellExecute = true });
         }
         catch (Exception ex)
         {

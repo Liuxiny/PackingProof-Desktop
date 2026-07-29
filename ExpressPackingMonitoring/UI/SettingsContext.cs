@@ -1,5 +1,6 @@
 using ExpressPackingMonitoring.Config;
 using ExpressPackingMonitoring.Data;
+using ExpressPackingMonitoring.Services;
 using ExpressPackingMonitoring.ViewModels;
 using System.Windows;
 using System.Windows.Input;
@@ -67,6 +68,10 @@ public sealed class SettingsContext
     public Func<IProgress<string>, CancellationToken, Task<MkvBatchConversionResult>>? BatchConvertMkvToMp4Async { get; init; }
     public ICommand? ResetEncoderDetectCommand { get; init; }
     public object? ToastSource { get; init; }
+    public Func<int>? SuggestedRetentionDaysProvider { get; init; }
+    public Func<string>? StorageRetentionWarningProvider { get; init; }
+    public Func<RecordingPerformanceRequest, CancellationToken, Task<RecordingPerformanceResult>>? RunPerformanceAssessmentAsync { get; init; }
+    public Func<string, string>? ResolveEncoderForAssessment { get; init; }
 
     public static SettingsContext ForCameraWorkstation(MainViewModel mainViewModel)
     {
@@ -86,7 +91,11 @@ public sealed class SettingsContext
             BatchConvertMkvToMp4Async = (progress, token) =>
                 mainViewModel.BatchConvertMkvToMp4Async(progress, token, forceRetry: true),
             ResetEncoderDetectCommand = mainViewModel.ResetEncoderDetectCommand,
-            ToastSource = mainViewModel
+            ToastSource = mainViewModel,
+            SuggestedRetentionDaysProvider = () => mainViewModel.SuggestedRetentionDays,
+            StorageRetentionWarningProvider = () => mainViewModel.StorageRetentionWarningText,
+            RunPerformanceAssessmentAsync = mainViewModel.RunPerformanceAssessmentAsync,
+            ResolveEncoderForAssessment = mainViewModel.ResolveEncoderForAssessment
         };
     }
 }

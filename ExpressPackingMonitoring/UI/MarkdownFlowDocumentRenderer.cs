@@ -1,5 +1,6 @@
 using ExpressPackingMonitoring.Logging;
 using System;
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Documents;
@@ -103,7 +104,7 @@ namespace ExpressPackingMonitoring.UI
                     {
                         try
                         {
-                            Services.UpdateCheckService.OpenDownloadPage(e.Uri.ToString());
+                            Process.Start(new ProcessStartInfo(e.Uri.ToString()) { UseShellExecute = true });
                         }
                         catch (Exception ex)
                         {

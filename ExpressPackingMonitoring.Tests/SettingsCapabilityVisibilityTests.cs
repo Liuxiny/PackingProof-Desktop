@@ -44,7 +44,7 @@ public sealed class SettingsCapabilityVisibilityTests
     [Theory]
     [InlineData("摄像头", "Capabilities.CanUseCamera")]
     [InlineData("麦克风", "Capabilities.CanRecordAudio")]
-    [InlineData("视频编码格式", "Capabilities.CanRecordPcVideo")]
+    [InlineData("录像编码器", "Capabilities.CanRecordPcVideo")]
     [InlineData("启用录像水印", "Capabilities.CanRecordPcVideo")]
     [InlineData("配置向导", "Capabilities.CanUseCamera")]
     [InlineData("订单备注播报", "Capabilities.IsRecordingDevice")]
@@ -68,7 +68,6 @@ public sealed class SettingsCapabilityVisibilityTests
     [InlineData("外观主题")]
     [InlineData("显示高级设置")]
     [InlineData("开机自启动")]
-    [InlineData("自动检查更新")]
     public void SharedSettingsAreNotHiddenByWorkstationCapabilities(string label)
     {
         XElement labelElement = Assert.Single(

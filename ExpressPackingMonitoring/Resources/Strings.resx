@@ -46,7 +46,6 @@
   <data name="发货模式" xml:space="preserve"><value>Shipping mode</value></data>
   <data name="退货模式" xml:space="preserve"><value>Return mode</value></data>
   <data name="重新检测" xml:space="preserve"><value>Detect again</value></data>
-  <data name="检查更新" xml:space="preserve"><value>Check for updates</value></data>
   <data name="播放选区" xml:space="preserve"><value>Play selection</value></data>
   <data name="生成并下载" xml:space="preserve"><value>Create and download</value></data>
   <data name="开始时间" xml:space="preserve"><value>Start time</value></data>
@@ -111,9 +110,6 @@
   <data name="打包时自动播报买家留言和卖家备注，避免漏看特殊要求" xml:space="preserve"><value>Automatically broadcast buyer messages and seller notes when packaging to avoid missing special requirements</value></data>
   <data name="打开 GitHub 仓库，查看源码、发布记录和问题反馈" xml:space="preserve"><value>Open the GitHub repository to view source code, release records and problem feedback</value></data>
   <data name="打开仓库" xml:space="preserve"><value>Open repository</value></data>
-  <data name="打开软件后后台检查，有新版本时提示下载" xml:space="preserve"><value>After opening the software, it will check in the background and prompt you to download when there is a new version.</value></data>
-  <data name="根目录启动器后台下载增量包，下次启动时自动安装" xml:space="preserve"><value>The root launcher downloads incremental updates in the background and installs them on the next launch</value></data>
-  <data name="推荐继续使用根目录启动器自动更新。手动下载增量包时，请完整解压后双击包内的“双击安装增量更新.cmd”" xml:space="preserve"><value>We recommend using the root launcher for automatic updates. For a manual patch, extract the entire archive and double-click the included CMD installer</value></data>
   <data name="打印后退款报警" xml:space="preserve"><value>Refund alarm after printing</value></data>
   <data name="单个录像超过这个时间就自动停止" xml:space="preserve"><value>If a single recording exceeds this time, it will automatically stop</value></data>
   <data name="单号判断规则" xml:space="preserve"><value>Order number validation</value></data>
@@ -230,6 +226,9 @@
   <data name="太短的视频自动丢弃" xml:space="preserve"><value>Videos that are too short will be automatically discarded</value></data>
   <data name="提前提醒时间" xml:space="preserve"><value>Reminder time in advance</value></data>
   <data name="添加磁盘" xml:space="preserve"><value>Add drive</value></data>
+  <data name="添加位置" xml:space="preserve"><value>Add location</value></data>
+  <data name="可选择本地任意文件夹或网络共享路径，并设置要预留的可用空间" xml:space="preserve"><value>Select any local folder or network share and configure the free space to reserve</value></data>
+  <data name="录像会按列表顺序保存。某个位置只剩下预留空间时，会自动切换到下一个位置；支持本地文件夹、映射盘和 UNC 网络路径" xml:space="preserve"><value>Recordings are saved in list order. When a location reaches its reserved space, the next location is used automatically. Local folders, mapped drives, and UNC network paths are supported</value></data>
   <data name="停顿越短越灵敏，越长越不易误触" xml:space="preserve"><value>The shorter the pause, the more sensitive it is; the longer the pause, the less likely it is to accidentally touch.</value></data>
   <data name="停止" xml:space="preserve"><value>Stop</value></data>
   <data name="同一网络里的电脑或手机可以用浏览器查看录像，首次开启可能请求管理员权限" xml:space="preserve"><value>Computers or mobile phones on the same network can use a browser to view the recording. Administrator permissions may be required when opening it for the first time.</value></data>
@@ -278,7 +277,6 @@
   <data name="重新检查打包模式、摄像头、麦克风和可选扫码枪" xml:space="preserve"><value>Recheck packing mode, camera, microphone, and optional scanner</value></data>
   <data name="重新运行" xml:space="preserve"><value>Rerun</value></data>
   <data name="重置编码器检测" xml:space="preserve"><value>Reset encoder detection</value></data>
-  <data name="自动检查更新" xml:space="preserve"><value>Automatically check for updates</value></data>
   <data name="自动提交停顿" xml:space="preserve"><value>Auto-submit pause</value></data>
   <data name="最大时长" xml:space="preserve"><value>Maximum duration</value></data>
   <data name="最小文件大小" xml:space="preserve"><value>Minimum file size</value></data>
@@ -614,4 +612,22 @@
   <data name="已打开订单联动安装向导" xml:space="preserve"><value>Order integration setup guide opened</value></data>
   <data name="当前已经是接收手机录像用途" xml:space="preserve"><value>This computer is already set to receive phone recordings</value></data>
   <data name="手机录像正在备份，完成后将自动重启" xml:space="preserve"><value>Phone recordings are being backed up. The app will restart automatically when finished</value></data>
+  <data name="只显示本机实际试编码成功的完整编码器；固定选择不可用时会阻止录像" xml:space="preserve"><value>Only encoders successfully tested on this computer are shown; recording is blocked if a fixed selection becomes unavailable</value></data>
+  <data name="录像编码器" xml:space="preserve"><value>Recording encoder</value></data>
+  <data name="编码格式与硬件实现绑定；新配置默认自动选择" xml:space="preserve"><value>The codec is bound to its hardware implementation; new configurations default to automatic selection</value></data>
+  <data name="性能检测" xml:space="preserve"><value>Performance test</value></data>
+  <data name="使用真实摄像头和编码器测试并返回推荐配置" xml:space="preserve"><value>Test with the actual camera and encoder and return a recommended configuration</value></data>
+  <data name="开始性能检测" xml:space="preserve"><value>Start performance test</value></data>
+  <data name="应用推荐配置" xml:space="preserve"><value>Apply recommended configuration</value></data>
+  <data name="尚未检测" xml:space="preserve"><value>Not tested yet</value></data>
+  <data name="最短 15 秒，最长 600 秒" xml:space="preserve"><value>Minimum 15 seconds, maximum 600 seconds</value></data>
+  <data name="最长保留天数" xml:space="preserve"><value>Maximum retention days</value></data>
+  <data name="默认 90 天，最短 15 天，不限制最大值；按录像日期清理" xml:space="preserve"><value>Defaults to 90 days, minimum 15 days with no maximum; cleanup is based on recording date</value></data>
+  <data name="使用建议" xml:space="preserve"><value>Use suggestion</value></data>
+  <data name="限制录像最大占用" xml:space="preserve"><value>Limit maximum recording storage</value></data>
+  <data name="默认关闭；开启后与保留天数共同生效" xml:space="preserve"><value>Off by default; when enabled, it works together with retention days</value></data>
+  <data name="单位 GB" xml:space="preserve"><value>Unit: GB</value></data>
+  <data name="本地录像缓冲目录" xml:space="preserve"><value>Local recording buffer folder</value></data>
+  <data name="使用网络路径时先在此完成录像，必须是本机固定磁盘" xml:space="preserve"><value>Record here first when using network storage; this must be a fixed local disk</value></data>
+  <data name="选择" xml:space="preserve"><value>Select</value></data>
 </root>

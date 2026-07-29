@@ -20,6 +20,7 @@ namespace ExpressPackingMonitoring.Config
         public static readonly string TranscodeCacheDir = Path.Combine(CacheDir, "transcode");
         public static readonly string TtsCacheDir = Path.Combine(CacheDir, "tts");
         public static readonly string GuideCacheDir = Path.Combine(CacheDir, "guide");
+        public static readonly string RecordingBufferDir = Path.Combine(UserDataDir, "recording-buffer");
 
         public static readonly string ConfigPath = Path.Combine(UserDataDir, "config.json");
         public static readonly string VideoDatabasePath = Path.Combine(UserDataDir, "videos.db");
@@ -28,7 +29,6 @@ namespace ExpressPackingMonitoring.Config
         public static readonly string RuntimeLogPath = Path.Combine(LogDir, "runtime.log");
         // 仅用于把旧版本 JSON 缓存一次性迁移到 SQLite；新版本不再写入此文件。
         public static readonly string OrderInfoCachePath = Path.Combine(CacheDir, "orderinfo_cache.json");
-        public static readonly string UpdateCheckCachePath = Path.Combine(CacheDir, "update_check_cache.json");
         public static readonly string MobileAppUpdateCachePath = Path.Combine(CacheDir, "mobile_app_update_cache.json");
 
         static AppPaths()
@@ -48,6 +48,7 @@ namespace ExpressPackingMonitoring.Config
             Directory.CreateDirectory(TranscodeCacheDir);
             Directory.CreateDirectory(TtsCacheDir);
             Directory.CreateDirectory(GuideCacheDir);
+            Directory.CreateDirectory(RecordingBufferDir);
         }
 
         private static string GetLocalAppDataRoot()

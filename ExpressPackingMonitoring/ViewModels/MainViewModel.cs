@@ -41,6 +41,7 @@ namespace ExpressPackingMonitoring.ViewModels
         private readonly string _configFilePath = AppPaths.ConfigPath;
         private readonly string _dbFilePath = AppPaths.VideoDatabasePath;
         private VideoDatabase _db;
+        private NetworkArchiveService _networkArchiveService;
 
         /// <summary>启动时缓存的可用 GPU 编码器列表</summary>
         public static List<GpuEncoderOption> CachedEncoderOptions { get; private set; }
@@ -168,6 +169,8 @@ namespace ExpressPackingMonitoring.ViewModels
         private Process _currentFfmpegProcess;
         private TaskCompletionSource<long> _firstRecordingFrameWritten;
         private long _recordingStartTimestamp;
+        private long _recordingFramesWritten;
+        private RecordingIntegritySession _recordingIntegritySession;
         private bool _isDisposed = false; // 新增：防止销毁后操作 UI
         private WebServer _webServer;
         private MobileAppUpdateAvailableInfo _pendingMobileAppUpdate;
@@ -213,6 +216,8 @@ namespace ExpressPackingMonitoring.ViewModels
 
         private double _diskUsagePercent;
         private string _diskUsageText = "0.0 / 0.0 GB";
+        private int _suggestedRetentionDays = 90;
+        private string _storageRetentionWarningText = "";
         private bool _isScanning = false;
         private DateTime _lastScanTime;
         private DateTime _lastMotionTime;
@@ -225,6 +230,7 @@ namespace ExpressPackingMonitoring.ViewModels
         private ScanRecord _currentScanRecord;
         private long _currentRecordId; 
         private string _currentVideoFilePath;  // 当前录制文件路径
+        private string _currentNetworkArchiveFilePath;
         private string _currentVideoCodec;
         private string _currentVideoEncoder;
         private string _stopReason = "手动";     // 停止录制的原因
@@ -317,7 +323,7 @@ namespace ExpressPackingMonitoring.ViewModels
             return $"UTC{offsetText}: {timestamp:yyyy/MM/dd HH:mm:ss}";
         }
 
-        internal static void ApplyWatermarkToFrame(Mat frame, DateTimeOffset timestamp, string orderId)
+        internal static void ApplyWatermarkToFrame(Mat frame, DateTimeOffset timestamp, string orderId, string proofCode = "")
         {
             if (frame == null || frame.IsDisposed || frame.Empty()) return;
 
@@ -334,15 +340,23 @@ namespace ExpressPackingMonitoring.ViewModels
             Cv2.PutText(frame, line1, new OpenCvSharp.Point(x1, y1),
                 HersheyFonts.HersheySimplex, fontScale, new Scalar(255, 255, 255), thickness, LineTypes.AntiAlias);
 
-            if (string.IsNullOrWhiteSpace(orderId)) return;
-
-            string line2 = $"Order:{orderId}";
+            string line2 = string.IsNullOrWhiteSpace(orderId) ? "Order:-" : $"Order:{orderId}";
             var size2 = Cv2.GetTextSize(line2, HersheyFonts.HersheySimplex, fontScale, thickness, out _);
             int x2 = Math.Max(8, frame.Width - size2.Width - 15);
             int y2 = y1 + (int)(lineHeight * 1.1);
             Cv2.PutText(frame, line2, new OpenCvSharp.Point(x2, y2),
                 HersheyFonts.HersheySimplex, fontScale, new Scalar(0, 0, 0), thickness + 2, LineTypes.AntiAlias);
             Cv2.PutText(frame, line2, new OpenCvSharp.Point(x2, y2),
+                HersheyFonts.HersheySimplex, fontScale, new Scalar(255, 255, 255), thickness, LineTypes.AntiAlias);
+
+            if (string.IsNullOrWhiteSpace(proofCode)) return;
+            string line3 = $"Proof:{proofCode}";
+            var size3 = Cv2.GetTextSize(line3, HersheyFonts.HersheySimplex, fontScale, thickness, out _);
+            int x3 = Math.Max(8, frame.Width - size3.Width - 15);
+            int y3 = y2 + (int)(lineHeight * 1.1);
+            Cv2.PutText(frame, line3, new OpenCvSharp.Point(x3, y3),
+                HersheyFonts.HersheySimplex, fontScale, new Scalar(0, 0, 0), thickness + 2, LineTypes.AntiAlias);
+            Cv2.PutText(frame, line3, new OpenCvSharp.Point(x3, y3),
                 HersheyFonts.HersheySimplex, fontScale, new Scalar(255, 255, 255), thickness, LineTypes.AntiAlias);
         }
 
@@ -406,6 +420,8 @@ namespace ExpressPackingMonitoring.ViewModels
         public bool IsShutdownInProgress { get => _isShutdownInProgress; private set => SetProperty(ref _isShutdownInProgress, value); }
         public double DiskUsagePercent { get => _diskUsagePercent; set => SetProperty(ref _diskUsagePercent, value); }
         public string DiskUsageText { get => _diskUsageText; set => SetProperty(ref _diskUsageText, value); }
+        public int SuggestedRetentionDays { get => _suggestedRetentionDays; private set => SetProperty(ref _suggestedRetentionDays, value); }
+        public string StorageRetentionWarningText { get => _storageRetentionWarningText; private set => SetProperty(ref _storageRetentionWarningText, value); }
         public AppConfig Config
         {
             get => _config;
@@ -800,6 +816,7 @@ namespace ExpressPackingMonitoring.ViewModels
             try
             {
                 _db = new VideoDatabase(_dbFilePath);
+                _networkArchiveService = new NetworkArchiveService(_db);
             }
             catch (Exception ex)
             {
@@ -826,6 +843,29 @@ namespace ExpressPackingMonitoring.ViewModels
                 OnPropertyChanged(nameof(TotalPackTimeDisplay)); OnPropertyChanged(nameof(AveragePackTimeDisplay));
             }
             catch { }
+        }
+
+        internal Task<RecordingPerformanceResult> RunPerformanceAssessmentAsync(
+            RecordingPerformanceRequest request,
+            CancellationToken cancellationToken)
+        {
+            return new RecordingPerformanceService().RunAsync(request, cancellationToken);
+        }
+
+        internal string ResolveEncoderForAssessment(string requested)
+        {
+            string normalized = AppConfig.NormalizeVideoEncoder(requested);
+            if (normalized != "auto")
+                return ValidatedEncoders.Contains(normalized) ? normalized : "";
+
+            string[] preference =
+            [
+                "h264_nvenc", "h264_amf", "h264_qsv",
+                "hevc_nvenc", "hevc_amf", "hevc_qsv",
+                "av1_nvenc", "av1_amf", "av1_qsv",
+                "libx264", "libx265", "libsvtav1"
+            ];
+            return preference.FirstOrDefault(ValidatedEncoders.Contains) ?? "";
         }
 
         private void RestoreRecentScanRecords()
@@ -1740,6 +1780,16 @@ namespace ExpressPackingMonitoring.ViewModels
 
         public void OpenSettings()
         {
+            OpenSettingsCore("");
+        }
+
+        private void OpenPerformanceSettings()
+        {
+            OpenSettingsCore("设备与画面");
+        }
+
+        private void OpenSettingsCore(string initialTab)
+        {
             if (_isEncoderDetectRunning)
             {
                 ShowToast("处理中：编码器环境检测中，请稍后打开设置...");
@@ -1749,6 +1799,8 @@ namespace ExpressPackingMonitoring.ViewModels
             {
                 var clonedConfig = JsonSerializer.Deserialize<AppConfig>(JsonSerializer.Serialize(Config)) ?? new AppConfig();
                 var settingsWin = new SettingsWindow(this, clonedConfig, DiskUsagePercent, DiskUsageText, IsRecording);
+                if (!string.IsNullOrWhiteSpace(initialTab))
+                    settingsWin.SelectTab(initialTab);
                 var mainWindow = Application.Current?.MainWindow as MainWindow;
                 if (mainWindow != null) settingsWin.Owner = mainWindow;
                 mainWindow?.SuspendCapsLockForModalWindow();
@@ -3731,7 +3783,11 @@ namespace ExpressPackingMonitoring.ViewModels
                                     processedFrame = currentFrame.Clone();
                                 }
                                 string orderId = IsRecording ? _recordingOrderId : CurrentOrderId;
-                                ApplyWatermarkToFrame(processedFrame, DateTimeOffset.Now, orderId);
+                                DateTimeOffset watermarkTime = DateTimeOffset.Now;
+                                string proofCode = IsRecording
+                                    ? _recordingIntegritySession?.GetCode(watermarkTime, orderId) ?? ""
+                                    : "";
+                                ApplyWatermarkToFrame(processedFrame, watermarkTime, orderId, proofCode);
                             }
                             catch { }
                         }
@@ -3814,7 +3870,7 @@ namespace ExpressPackingMonitoring.ViewModels
                         bool inGracePeriod = elapsedSec < 5.0;
 
                         double autoStopTotalSec = Config.AutoStopMinutes * 60.0;
-                        double maxDurTotalSec = Config.MaxDurationMinutes * 60.0;
+                        double maxDurTotalSec = Config.MaxDurationSeconds;
 
                         if (!inGracePeriod)
                         {
@@ -3848,7 +3904,7 @@ namespace ExpressPackingMonitoring.ViewModels
                             {
                                 if (_currentScanRecord != null)
                                 {
-                                    int maxSec = (int)(Config.MaxDurationMinutes * 60);
+                                    int maxSec = Config.MaxDurationSeconds;
                                     _currentScanRecord.Duration = Config.EnableMaxDuration ? $"{(int)elapsedSec}s / {maxSec}s" : $"{(int)elapsedSec}s";
                                 }
                             });
@@ -3867,7 +3923,7 @@ namespace ExpressPackingMonitoring.ViewModels
                             }); 
                         }
 
-                        if (!inGracePeriod && Config.EnableMaxDuration && elapsedSec >= Config.MaxDurationMinutes * 60.0)
+                        if (!inGracePeriod && Config.EnableMaxDuration && elapsedSec >= Config.MaxDurationSeconds)
                         { 
                             _stopReason = "时长超时"; 
                             _ = Application.Current.Dispatcher.InvokeAsync(async () => { 
@@ -4313,6 +4369,7 @@ namespace ExpressPackingMonitoring.ViewModels
             _purposeSwitchCts.Dispose();
             try { _globalKeyHook?.Dispose(); } catch { }
             try { _webServer?.Dispose(); } catch { }
+            try { _networkArchiveService?.Dispose(); } catch { }
             try { _db?.Dispose(); } catch { }
         }
     }

@@ -29,6 +29,7 @@ namespace ExpressPackingMonitoring.UI
         public string VideoCodec { get; set; } = "";
         public string VideoEncoder { get; set; } = "";
         public string SourceDisplay { get; set; } = "";
+        public string ProofDisplay { get; set; } = "";
         public bool IsMissing { get; set; }
         public bool IsDeleted { get; set; }
         public string DeleteReason { get; set; } = "";
@@ -260,6 +261,7 @@ namespace ExpressPackingMonitoring.UI
                                 record.SourceType,
                                 record.SourceDeviceId,
                                 record.SourceDeviceName),
+                            ProofDisplay = GetProofDisplay(record),
                             IsMissing = missing,
                             IsDeleted = deleted,
                             DeleteReason = record.DeleteReason,
@@ -290,6 +292,17 @@ namespace ExpressPackingMonitoring.UI
             }
             int total = videos.Count;
             return (videos.Skip((page - 1) * PageSize).Take(PageSize).ToList(), total);
+        }
+
+        private static string GetProofDisplay(VideoRecord record)
+        {
+            if (string.IsNullOrWhiteSpace(record.ProofFilePath))
+                return string.Equals(record.SourceType, "pc", StringComparison.OrdinalIgnoreCase)
+                    ? "旧录像·无证明"
+                    : "";
+            return record.ArchiveStatus is VideoArchiveStatus.Verified or VideoArchiveStatus.LocalDeleted
+                ? "已签名·已归档"
+                : "已签名";
         }
 
         private void LoadVideosFromFileSystem(List<VideoItem> videos, DateTime? start, DateTime? end)

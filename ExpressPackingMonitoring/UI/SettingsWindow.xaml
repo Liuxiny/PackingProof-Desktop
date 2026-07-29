@@ -750,7 +750,8 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <TabControl Grid.Row="0"
+        <TabControl x:Name="SettingsTabs"
+                    Grid.Row="0"
                     TabStripPlacement="Left"
                     Background="Transparent"
                     BorderThickness="0"
@@ -969,37 +970,18 @@
                                     Visibility="{Binding Capabilities.CanRecordPcVideo, Converter={StaticResource BoolToVisibility}}">
                                 <StackPanel>
                                     <Grid Style="{StaticResource AdvancedSettingRowStyle}"
-                                          ToolTip="H.265/HEVC 体积更小，但部分电脑或浏览器可能无法直接播放；H.264 兼容性更好">
+                                          ToolTip="只显示本机实际试编码成功的完整编码器；固定选择不可用时会阻止录像">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="24"/>
                                             <ColumnDefinition Width="260"/>
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Margin="0,0,16,0">
-                                            <TextBlock Text="视频编码格式" Style="{StaticResource FieldLabelStyle}"/>
-                                            <TextBlock Text="影响录像体积和播放兼容性"
+                                            <TextBlock Text="录像编码器" Style="{StaticResource FieldLabelStyle}"/>
+                                            <TextBlock Text="编码格式与硬件实现绑定；新配置默认自动选择"
                                                        Style="{StaticResource FieldHintStyle}"/>
                                         </StackPanel>
-                                        <ComboBox x:Name="VideoCodecComboBox"
-                                                  Grid.Column="2"
-                                                  SelectedValuePath="Value"
-                                                  DisplayMemberPath="DisplayName"
-                                                  Cursor="Hand"/>
-                                    </Grid>
-
-                                    <Grid Style="{StaticResource AdvancedSettingRowStyle}"
-                                          ToolTip="优先使用显卡进行视频编码，可降低 CPU 占用；如果录像异常，可改为自动或 CPU">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="24"/>
-                                            <ColumnDefinition Width="260"/>
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel Margin="0,0,16,0">
-                                            <TextBlock Text="硬件加速" Style="{StaticResource FieldLabelStyle}"/>
-                                            <TextBlock Text="用显卡帮忙录像，降低电脑占用"
-                                                       Style="{StaticResource FieldHintStyle}"/>
-                                        </StackPanel>
-                                        <ComboBox x:Name="GpuEncoderComboBox"
+                                        <ComboBox x:Name="VideoEncoderComboBox"
                                                   Grid.Column="2"
                                                   SelectedValuePath="Value"
                                                   DisplayMemberPath="DisplayName"
@@ -1037,6 +1019,38 @@
                                         <ComboBox x:Name="FpsComboBox" Grid.Column="2"
                                                   Height="32"
                                                   Cursor="Hand"/>
+                                    </Grid>
+
+                                    <Grid Style="{StaticResource AdvancedSettingRowStyle}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="24"/>
+                                            <ColumnDefinition Width="260"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Margin="0,0,16,0">
+                                            <TextBlock Text="性能检测" Style="{StaticResource FieldLabelStyle}"/>
+                                            <TextBlock Text="使用真实摄像头和编码器测试并返回推荐配置"
+                                                       Style="{StaticResource FieldHintStyle}"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <StackPanel Orientation="Horizontal">
+                                                <Button x:Name="PerformanceDetectButton"
+                                                        Content="开始性能检测"
+                                                        Click="RunPerformanceAssessment_Click"
+                                                        Style="{StaticResource SecondaryButtonStyle}"/>
+                                                <Button x:Name="ApplyPerformanceRecommendationButton"
+                                                        Content="应用推荐配置"
+                                                        Click="ApplyPerformanceRecommendation_Click"
+                                                        Style="{StaticResource PrimaryButtonStyle}"
+                                                        Margin="8,0,0,0"
+                                                        Visibility="Collapsed"/>
+                                            </StackPanel>
+                                            <TextBlock x:Name="PerformanceResultText"
+                                                       Text="尚未检测"
+                                                       Style="{StaticResource FieldHintStyle}"
+                                                       TextWrapping="Wrap"
+                                                       Margin="0,8,0,0"/>
+                                        </StackPanel>
                                     </Grid>
 
                                     <Grid Style="{StaticResource AdvancedSettingRowLastStyle}"
@@ -1364,21 +1378,16 @@
                                             <TextBlock Text="单个录像超过这个时间就自动停止"
                                                        Style="{StaticResource FieldHintStyle}"/>
                                         </StackPanel>
-                                        <StackPanel Grid.Column="2">
-                                            <Grid>
-                                                <TextBlock Text="更短" Style="{StaticResource SliderEndLabelStyle}" HorizontalAlignment="Left"/>
-                                                <TextBlock Text="{Binding ElementName=MaxDurationSlider, Path=Value, StringFormat={}{0:F1} 分钟}"
-                                                           Style="{StaticResource SliderValueTextStyle}"
-                                                           HorizontalAlignment="Center"/>
-                                                <TextBlock Text="更长" Style="{StaticResource SliderEndLabelStyle}" HorizontalAlignment="Right"/>
-                                            </Grid>
-                                            <Slider x:Name="MaxDurationSlider"
-                                                    Style="{StaticResource SettingsSliderStyle}"
-                                                    Minimum="0.1"
-                                                    Maximum="60"
-                                                    TickFrequency="0.5"
-                                                    Value="{Binding Config.MaxDurationMinutes, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
-                                        </StackPanel>
+                                        <xctk:IntegerUpDown Grid.Column="2"
+                                                            Value="{Binding Config.MaxDurationSeconds, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                            Minimum="15"
+                                                            Maximum="600"
+                                                            Increment="5"
+                                                            DefaultValue="60"
+                                                            ToolTip="最短 15 秒，最长 600 秒"
+                                                            Width="150"
+                                                            Height="36"
+                                                            HorizontalAlignment="Left"/>
                                     </Grid>
 
                                     <Border Style="{StaticResource SectionDividerStyle}"/>
@@ -1556,9 +1565,106 @@
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Margin="0,0,16,0">
                                             <TextBlock Text="录像保存位置" Style="{StaticResource FieldLabelStyle}"/>
-                                            <TextBlock Text="配置录像保存位置，以及每个磁盘要留给系统和其他软件的空间"
+                                            <TextBlock Text="可选择本地任意文件夹或网络共享路径，并设置要预留的可用空间"
                                                        Style="{StaticResource FieldHintStyle}"/>
                                         </StackPanel>
+                                    </Grid>
+
+                                    <Grid Style="{StaticResource SettingRowStyle}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="24"/>
+                                            <ColumnDefinition Width="260"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Margin="0,0,16,0">
+                                            <TextBlock Text="最长保留天数" Style="{StaticResource FieldLabelStyle}"/>
+                                            <TextBlock Text="默认 90 天，最短 15 天，不限制最大值；按录像日期清理"
+                                                       Style="{StaticResource FieldHintStyle}"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal">
+                                            <xctk:IntegerUpDown Value="{Binding Config.MaxRetentionDays, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                Minimum="15"
+                                                                Increment="1"
+                                                                Width="105"
+                                                                Height="36"/>
+                                            <Button Content="使用建议"
+                                                    Click="UseSuggestedRetention_Click"
+                                                    Style="{StaticResource SecondaryButtonStyle}"
+                                                    Margin="10,0,0,0"
+                                                    ToolTip="{Binding SuggestedRetentionDays, StringFormat=根据历史数据建议 {0} 天}"/>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <TextBlock Text="{Binding StorageRetentionWarningText}"
+                                               Foreground="{DynamicResource AccentRed}"
+                                               TextWrapping="Wrap"
+                                               Margin="0,0,0,12">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                                <Style.Triggers>
+                                                    <Trigger Property="Text" Value="">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                    </Trigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+
+                                    <Grid Style="{StaticResource SettingRowStyle}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="24"/>
+                                            <ColumnDefinition Width="260"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Margin="0,0,16,0">
+                                            <TextBlock Text="限制录像最大占用" Style="{StaticResource FieldLabelStyle}"/>
+                                            <TextBlock Text="默认关闭；开启后与保留天数共同生效"
+                                                       Style="{StaticResource FieldHintStyle}"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal">
+                                            <CheckBox x:Name="MaxStorageUsageCheckBox"
+                                                      IsChecked="{Binding Config.EnableMaxStorageUsage}"
+                                                      Style="{StaticResource ToggleSwitchStyle}"
+                                                      VerticalAlignment="Center"/>
+                                            <xctk:DoubleUpDown Value="{Binding Config.MaxStorageUsageGB, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                               Minimum="1"
+                                                               Increment="10"
+                                                               FormatString="F0"
+                                                               IsEnabled="{Binding IsChecked, ElementName=MaxStorageUsageCheckBox}"
+                                                               Width="105"
+                                                               Height="36"
+                                                               Margin="12,0,0,0"
+                                                               ToolTip="单位 GB"/>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <Grid Style="{StaticResource SettingRowStyle}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="24"/>
+                                            <ColumnDefinition Width="260"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Margin="0,0,16,0">
+                                            <TextBlock Text="本地录像缓冲目录" Style="{StaticResource FieldLabelStyle}"/>
+                                            <TextBlock Text="使用网络路径时先在此完成录像，必须是本机固定磁盘"
+                                                       Style="{StaticResource FieldHintStyle}"/>
+                                        </StackPanel>
+                                        <Grid Grid.Column="2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBox x:Name="LocalRecordingBufferTextBox"
+                                                     Text="{Binding Config.LocalRecordingBufferPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                     Height="36"
+                                                     VerticalContentAlignment="Center"/>
+                                            <Button Grid.Column="1"
+                                                    Content="选择"
+                                                    Click="SelectLocalRecordingBuffer_Click"
+                                                    Style="{StaticResource SecondaryButtonStyle}"
+                                                    Margin="8,0,0,0"/>
+                                        </Grid>
                                     </Grid>
 
                                     <Border BorderBrush="{DynamicResource BorderLight}"
@@ -1671,11 +1777,11 @@
                                             </DataGrid.Columns>
                                         </DataGrid>
                                     </Border>
-                                    <TextBlock Text="录像会按列表顺序保存。某个磁盘只剩下预留空间时，会自动换到下一个磁盘；系统盘默认至少预留 30GB 或 10%，其他磁盘至少预留 20GB 或 5%，以较大值为准"
+                                    <TextBlock Text="录像会按列表顺序保存。某个位置只剩下预留空间时，会自动切换到下一个位置；支持本地文件夹、映射盘和 UNC 网络路径"
                                                Style="{StaticResource FieldHintStyle}"
                                                Margin="0,10,0,0"/>
                                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="{StaticResource SettingInlineTopMargin}">
-                                        <Button Content="添加磁盘"
+                                        <Button Content="添加位置"
                                                 Click="BtnAddStorage_Click"
                                                 Style="{StaticResource SecondaryButtonStyle}"
                                                 Margin="0,0,10,0"/>
@@ -2820,23 +2926,6 @@
                                         </ComboBox>
                                     </Grid>
 
-                                    <Grid Style="{StaticResource SettingRowLastStyle}">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="24"/>
-                                            <ColumnDefinition Width="260"/>
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel Margin="0,0,16,0">
-                                            <TextBlock Text="自动检查更新" Style="{StaticResource FieldLabelStyle}"/>
-                                            <TextBlock Text="根目录启动器后台下载增量包，下次启动时自动安装"
-                                                    Style="{StaticResource FieldHintStyle}"/>
-                                        </StackPanel>
-                                        <CheckBox Grid.Column="2"
-                                                IsChecked="{Binding Config.EnableAutoCheckUpdate}"
-                                                VerticalAlignment="Center"
-                                                HorizontalAlignment="Left"
-                                                Style="{StaticResource ToggleSwitchStyle}"/>
-                                    </Grid>
                                 </StackPanel>
                             </Border>
 
@@ -2967,11 +3056,6 @@
                                                        Style="{StaticResource FieldHintStyle}"/>
                                         </StackPanel>
                                         <WrapPanel Grid.Column="2">
-                                            <Button x:Name="CheckUpdateButton"
-                                                    Content="检查更新"
-                                                    Click="CheckUpdate_Click"
-                                                    Style="{StaticResource SecondaryButtonStyle}"
-                                                    Margin="0,0,8,8"/>
                                             <Button Content="打开仓库"
                                                     Click="OpenRepository_Click"
                                                     Style="{StaticResource SecondaryButtonStyle}"

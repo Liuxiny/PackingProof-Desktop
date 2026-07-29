@@ -2,8 +2,9 @@
 
 [简体中文](README.md) | English
 
-![GitHub Stars](https://img.shields.io/github/stars/m-RNA/ExpressPackingMonitoring?style=flat&color=ffcf49)
-[![GitHub All Releases](https://img.shields.io/github/downloads/m-RNA/ExpressPackingMonitoring/total)](https://github.com/m-RNA/ExpressPackingMonitoring/releases)
+![GitHub Stars](https://img.shields.io/github/stars/Liuxiny/PackingProof-Desktop?style=flat&color=ffcf49)
+[![GitHub Release](https://img.shields.io/github/v/release/Liuxiny/PackingProof-Desktop)](https://github.com/Liuxiny/PackingProof-Desktop/releases/latest)
+[![GitHub All Releases](https://img.shields.io/github/downloads/Liuxiny/PackingProof-Desktop/total)](https://github.com/Liuxiny/PackingProof-Desktop/releases)
 
 A packing video and shipment-risk interception tool for e-commerce sellers and packing stations. It records automatically when a shipping barcode is scanned, integrates with Kuaidi Assistant to announce buyer messages and seller notes, and alerts packers when an order is refunded after its shipping label has already been printed.
 
@@ -28,11 +29,17 @@ A packing video and shipment-risk interception tool for e-commerce sellers and p
 - Uses the camera to recognize one-dimensional shipping-label barcodes and start recording automatically
 - Reads the central guide at a high rate, adds a low-rate full-frame fallback while idle, and restricts recognition to the guide while recording to reduce product-barcode false triggers
 - Keeps camera recognition and keyboard-mode scanners available together, so a scanner can remain as a background-input and recovery fallback
-- Supports camera recording, audio capture, and video watermarks
+- Supports camera recording, audio capture, and watermarks containing time, tracking information, and a proof code that changes every second
+- Binds codec and implementation into tested encoder choices, including available CPU, Intel QSV, NVIDIA NVENC, and AMD AMF H.264/H.265/AV1 encoders
+- Defaults new configurations to automatic encoder selection and blocks recording instead of silently falling back when a fixed encoder becomes unavailable
+- Runs a real camera and encoder performance test, recommends a resolution/frame-rate/encoder combination, and verifies the first recording after settings change
+- Keeps maximum recording duration off by default; when enabled, it defaults to 60 seconds and accepts 15–600 seconds
 - Searches recordings by order or tracking number and plays them in a browser
 - Provides browser-based trim-and-download with a selectable time range
-- Supports multiple storage locations, automatic drive switching, and reserve-space-based cleanup
-- Checks for updates through the launcher, verifies incremental packages, and installs pending updates on the next launch; manually downloaded patches include a double-click CMD installer
+- Accepts any local folder, mapped drive, or UNC share; network recordings finish locally before verified background archival
+- Retains recordings for 90 days by default with a 15-day minimum and no hidden maximum; recording quota is off by default and storage history drives capacity forecasts
+- Streams SHA-256 over completed recordings and creates signed `.proof.json` files for tamper detection
+- Never checks, downloads, or installs desktop updates automatically; upgrades use a manually downloaded Setup, complete 7z, or complete ZIP
 
 ## Requirements
 
@@ -46,18 +53,19 @@ A packing video and shipment-risk interception tool for e-commerce sellers and p
 
 1. Open the application and go to Settings.
 2. Select the camera and microphone.
-3. Choose recording locations and the amount of disk space to reserve for the system.
-4. Place the shipping-label barcode inside the guide until it is recognized, or use the existing scanner workflow.
-5. Finish the shipment or scan the stop command to end recording.
-6. Enter the tracking number in the recording list whenever you need to retrieve the video.
+3. Choose recording locations and the amount of disk space to reserve for the system. Select a local buffer directory when using network storage.
+4. Run the performance test under Device and Video and apply the recommended configuration.
+5. Place the shipping-label barcode inside the guide until it is recognized, or use the existing scanner workflow.
+6. Finish the shipment or scan the stop command to end recording.
+7. Enter the tracking number in the recording list whenever you need to retrieve the video.
 
 Placing a label in view does not wake an idle camera. Click the application, press a key, or use the scanner first, then place the label inside the recognition guide.
 
 ## Updating
 
-- Start the app from an installer-created shortcut or the root `ExpressPackingMonitoring.exe`. The launcher downloads verified incremental packages in the background and installs them on the next launch.
-- For a manually downloaded patch, extract the whole archive and double-click `双击安装增量更新.cmd`. It first reads the saved `app` directory from the user configuration. If detection fails, drag in the full-package root, the `app` directory, an application executable, or a `.lnk` shortcut targeting one of them. Broken, cyclic, internet, and unrelated shortcuts are rejected with a specific reason.
-- If the installed version is below the patch baseline or the launcher must change, run the newer Setup for an in-place upgrade. The full ZIP is the recovery alternative. Existing portable folders are never migrated or removed automatically. Keep `%LOCALAPPDATA%\ExpressPackingMonitoring\` to preserve configuration and database records.
+- The root launcher only starts the application. It does not check, download, or install desktop updates.
+- Download the latest Setup manually from [GitHub Releases](https://github.com/Liuxiny/PackingProof-Desktop/releases) for an in-place upgrade, or replace the program directory with the complete 7z/ZIP package.
+- Runtime data under `%LOCALAPPDATA%\ExpressPackingMonitoring\` is preserved. Existing portable folders are never migrated or removed automatically.
 
 ## Uninstalling and Data
 
@@ -97,7 +105,22 @@ Duplicate tracking numbers are checked against non-deleted recording records fro
 
 Configuration, databases, logs, and recordings are stored in the current user's local data directories. Existing settings and recording records are preserved during normal upgrades as long as the user data is not deleted.
 
-Storage settings represent reserved free space, not a recording quota. When a drive falls below its reserve threshold, the application stops writing new recordings to that drive and prefers the next configured location. The system drive automatically receives a larger safety reserve to protect Windows and other applications.
+Storage locations can be any folder on a local drive, a mapped drive, or a UNC network share such as `\\server\share\folder`. The current Windows user must have access and write permission for a network share.
+
+For network storage, video capture, audio muxing, and proof generation finish in the configured local buffer first. A persistent background queue uploads through a temporary file, verifies length and SHA-256, and publishes the network file only after validation. Playback, download, and clipping prefer a verified network copy and fall back to the local copy when the share is unavailable.
+
+Maximum retention defaults to 90 days, has a 15-day minimum, and has no hidden upper limit. The optional recording quota is off by default. Recent daily recording volume is used to estimate sustainable retention without overwriting the user's setting. Once a network copy is verified and reachable, local copies are retained only for today and yesterday; recordings that have not been archived follow the global retention policy and produce an advance warning when time or space is at risk.
+
+Storage settings represent reserved free space, not a recording quota. When a location falls below its reserve threshold, the application stops writing new recordings there and prefers the next configured location. The system drive automatically receives a larger safety reserve to protect Windows and other applications.
+
+## Recording Settings, Performance, and Integrity
+
+- Maximum duration is independent from motion-idle stopping. It is off by default and accepts 15–600 seconds when enabled.
+- The encoder list contains only FFmpeg encoders that pass a short trial encode. `auto` chooses from validated encoders; an unavailable fixed encoder blocks recording.
+- CPU H.265 and CPU AV1 are high-load choices. Low-power systems should run the performance test and use its recommendation.
+- The performance test measures camera input and encoder output separately, helping distinguish encoding limits from exposure, driver, or USB-bandwidth problems.
+- The first successful recording after a configuration change checks resolution, frame rate, dropped frames, duration, codec, and file readability. A failed check offers a direct path to the recommended settings.
+- New recordings include a changing watermark proof code, a video SHA-256 hash, and a signed proof file. Legacy videos without a proof file are identified as such.
 
 ## License
 

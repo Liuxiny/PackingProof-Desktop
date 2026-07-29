@@ -10,6 +10,18 @@ using Microsoft.Data.Sqlite;
 
 namespace ExpressPackingMonitoring.Data
 {
+    public static class VideoArchiveStatus
+    {
+        public const string LocalOnly = "LocalOnly";
+        public const string Pending = "Pending";
+        public const string Copying = "Copying";
+        public const string Verified = "Verified";
+        public const string Failed = "Failed";
+        public const string Conflict = "Conflict";
+        public const string LocalDeleted = "LocalDeleted";
+        public const string Unavailable = "Unavailable";
+    }
+
     /// <summary>
     /// 视频录制记录
     /// </summary>
@@ -33,7 +45,19 @@ namespace ExpressPackingMonitoring.Data
         public string VideoCodec { get; set; } = "";
         public string VideoEncoder { get; set; } = "";
         public string FilePath { get; set; } = "";
-        public string FileName => Path.GetFileName(FilePath ?? "");
+        public string LocalFilePath { get; set; } = "";
+        public string NetworkFilePath { get; set; } = "";
+        public string ArchiveStatus { get; set; } = VideoArchiveStatus.LocalOnly;
+        public string ProofFilePath { get; set; } = "";
+        public int ArchiveRetryCount { get; set; }
+        public DateTime? LastArchiveAttemptAt { get; set; }
+        public DateTime? ArchiveCompletedAt { get; set; }
+        public string ArchiveError { get; set; } = "";
+        public DateTime? LocalCopyDeletedAt { get; set; }
+        public string LocalDeleteReason { get; set; } = "";
+        public string FileName => Path.GetFileName(
+            !string.IsNullOrWhiteSpace(NetworkFilePath) ? NetworkFilePath :
+            !string.IsNullOrWhiteSpace(LocalFilePath) ? LocalFilePath : FilePath ?? "");
         public long FileSizeBytes { get; set; }
         public DateTime StartTime { get; set; }
         public DateTime EndTime { get; set; }
@@ -142,6 +166,16 @@ namespace ExpressPackingMonitoring.Data
                     SourceDeviceName TEXT DEFAULT '',
                     SourceSessionId TEXT DEFAULT '',
                     ContentSha256 TEXT DEFAULT '',
+                    LocalFilePath TEXT DEFAULT '',
+                    NetworkFilePath TEXT DEFAULT '',
+                    ArchiveStatus TEXT NOT NULL DEFAULT 'LocalOnly',
+                    ProofFilePath TEXT DEFAULT '',
+                    ArchiveRetryCount INTEGER NOT NULL DEFAULT 0,
+                    LastArchiveAttemptAt TEXT,
+                    ArchiveCompletedAt TEXT,
+                    ArchiveError TEXT DEFAULT '',
+                    LocalCopyDeletedAt TEXT,
+                    LocalDeleteReason TEXT DEFAULT '',
                     BackupCompletedAt TEXT,
                     FilePath TEXT NOT NULL,
                     FileSizeBytes INTEGER DEFAULT 0,
@@ -201,12 +235,23 @@ namespace ExpressPackingMonitoring.Data
             EnsureColumnExists("VideoRecords", "SourceDeviceName", "TEXT DEFAULT ''");
             EnsureColumnExists("VideoRecords", "SourceSessionId", "TEXT DEFAULT ''");
             EnsureColumnExists("VideoRecords", "ContentSha256", "TEXT DEFAULT ''");
+            EnsureColumnExists("VideoRecords", "LocalFilePath", "TEXT DEFAULT ''");
+            EnsureColumnExists("VideoRecords", "NetworkFilePath", "TEXT DEFAULT ''");
+            EnsureColumnExists("VideoRecords", "ArchiveStatus", "TEXT NOT NULL DEFAULT 'LocalOnly'");
+            EnsureColumnExists("VideoRecords", "ProofFilePath", "TEXT DEFAULT ''");
+            EnsureColumnExists("VideoRecords", "ArchiveRetryCount", "INTEGER NOT NULL DEFAULT 0");
+            EnsureColumnExists("VideoRecords", "LastArchiveAttemptAt", "TEXT");
+            EnsureColumnExists("VideoRecords", "ArchiveCompletedAt", "TEXT");
+            EnsureColumnExists("VideoRecords", "ArchiveError", "TEXT DEFAULT ''");
+            EnsureColumnExists("VideoRecords", "LocalCopyDeletedAt", "TEXT");
+            EnsureColumnExists("VideoRecords", "LocalDeleteReason", "TEXT DEFAULT ''");
             EnsureColumnExists("VideoRecords", "BackupCompletedAt", "TEXT");
             EnsureColumnExists("VideoRecords", "MkvFirstFailedAt", "TEXT");
             EnsureColumnExists("VideoRecords", "MkvLastAttemptAt", "TEXT");
             EnsureColumnExists("VideoRecords", "MkvFailureCount", "INTEGER NOT NULL DEFAULT 0");
             EnsureColumnExists("VideoRecords", "MkvLastError", "TEXT DEFAULT ''");
             EnsureColumnExists("VideoRecords", "MkvLastNotifiedAt", "TEXT");
+            MigrateLegacyVideoStorageFields();
             ExecuteNonQuery(@"
                 UPDATE VideoRecords
                 SET BackupCompletedAt = COALESCE(EndTime, StartTime)
@@ -224,6 +269,8 @@ namespace ExpressPackingMonitoring.Data
             ExecuteNonQuery("CREATE INDEX IF NOT EXISTS idx_orderinfo_source_order ON OrderInfoRecords(SourceOrderId);");
             ExecuteNonQuery("CREATE INDEX IF NOT EXISTS idx_orderinfo_push_time ON OrderInfoRecords(PushTime DESC);");
             ExecuteNonQuery("CREATE INDEX IF NOT EXISTS idx_video_content_sha256 ON VideoRecords(ContentSha256);");
+            ExecuteNonQuery("CREATE INDEX IF NOT EXISTS idx_video_archive_status ON VideoRecords(ArchiveStatus, StartTime);");
+            ExecuteNonQuery("CREATE INDEX IF NOT EXISTS idx_video_network_path ON VideoRecords(NetworkFilePath);");
             ExecuteNonQuery("CREATE UNIQUE INDEX IF NOT EXISTS idx_video_external_session ON VideoRecords(SourceDeviceId, SourceSessionId) WHERE SourceType = 'external' AND SourceDeviceId <> '' AND SourceSessionId <> '';");
             CleanupExpiredOrderInfos();
         }
@@ -250,11 +297,11 @@ namespace ExpressPackingMonitoring.Data
                     INSERT INTO VideoRecords (
                         OrderId, Mode, TrackingNumber, SourceOrderId, BuyerMessage, SellerMemo, ProductInfo,
                         OrderInfoPushTime, OrderInfoJson, SourceType, SourceDeviceId, SourceDeviceName,
-                        VideoCodec, VideoEncoder, FilePath, StartTime)
+                        VideoCodec, VideoEncoder, FilePath, LocalFilePath, ArchiveStatus, StartTime)
                     VALUES (
                         @orderId, @mode, @trackingNumber, @sourceOrderId, @buyerMessage, @sellerMemo, @productInfo,
                         @orderInfoPushTime, @orderInfoJson, 'pc', @sourceDeviceId, @sourceDeviceName,
-                        @videoCodec, @videoEncoder, @filePath, @startTime);
+                        @videoCodec, @videoEncoder, @filePath, @filePath, 'LocalOnly', @startTime);
                     SELECT last_insert_rowid();";
                 cmd.Parameters.AddWithValue("@orderId", orderId ?? "");
                 cmd.Parameters.AddWithValue("@mode", mode ?? "");
@@ -299,12 +346,12 @@ namespace ExpressPackingMonitoring.Data
                     INSERT INTO VideoRecords (
                         OrderId, Mode, TrackingNumber, SourceOrderId, BuyerMessage, SellerMemo, ProductInfo,
                         OrderInfoPushTime, OrderInfoJson, SourceType, SourceDeviceId, SourceDeviceName,
-                        SourceSessionId, ContentSha256, FilePath, FileSizeBytes, StartTime, EndTime,
+                        SourceSessionId, ContentSha256, FilePath, LocalFilePath, ArchiveStatus, FileSizeBytes, StartTime, EndTime,
                         DurationSeconds, StopReason, BackupCompletedAt)
                     VALUES (
                         @orderId, '发货', @trackingNumber, @sourceOrderId, @buyerMessage, @sellerMemo, @productInfo,
                         @orderInfoPushTime, @orderInfoJson, 'external', @sourceDeviceId, @sourceDeviceName,
-                        @sourceSessionId, @contentSha256, @filePath, @fileSizeBytes, @startTime, @endTime,
+                        @sourceSessionId, @contentSha256, @filePath, @filePath, 'LocalOnly', @fileSizeBytes, @startTime, @endTime,
                         @durationSeconds, 'APP 备份', @backupCompletedAt);
                     SELECT last_insert_rowid();";
                 cmd.Parameters.AddWithValue("@orderId", orderId);
@@ -421,7 +468,9 @@ namespace ExpressPackingMonitoring.Data
                            StartTime, EndTime, DurationSeconds, StopReason,
                            IsDeleted, DeletedAt, DeleteReason,
                            TrackingNumber, SourceOrderId, BuyerMessage, SellerMemo, ProductInfo, OrderInfoPushTime, OrderInfoJson,
-                           SourceType, SourceDeviceId, SourceDeviceName, SourceSessionId, ContentSha256
+                           SourceType, SourceDeviceId, SourceDeviceName, SourceSessionId, ContentSha256,
+                           LocalFilePath, NetworkFilePath, ArchiveStatus, ProofFilePath, ArchiveRetryCount,
+                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason
                     FROM VideoRecords
                     WHERE SourceType = 'external' AND SourceDeviceId = @sourceDeviceId AND SourceSessionId = @sourceSessionId
                     LIMIT 1;";
@@ -443,7 +492,9 @@ namespace ExpressPackingMonitoring.Data
                            StartTime, EndTime, DurationSeconds, StopReason,
                            IsDeleted, DeletedAt, DeleteReason,
                            TrackingNumber, SourceOrderId, BuyerMessage, SellerMemo, ProductInfo, OrderInfoPushTime, OrderInfoJson,
-                           SourceType, SourceDeviceId, SourceDeviceName, SourceSessionId, ContentSha256
+                           SourceType, SourceDeviceId, SourceDeviceName, SourceSessionId, ContentSha256,
+                           LocalFilePath, NetworkFilePath, ArchiveStatus, ProofFilePath, ArchiveRetryCount,
+                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason
                     FROM VideoRecords
                     WHERE ContentSha256 = @contentSha256 AND IsDeleted = 0
                     ORDER BY Id LIMIT 1;";
@@ -636,6 +687,7 @@ namespace ExpressPackingMonitoring.Data
                 cmd.CommandText = @"
                     UPDATE VideoRecords
                     SET FilePath = @newPath,
+                        LocalFilePath = CASE WHEN LocalFilePath = @oldPath OR LocalFilePath = '' THEN @newPath ELSE LocalFilePath END,
                         MkvFirstFailedAt = NULL,
                         MkvLastAttemptAt = NULL,
                         MkvFailureCount = 0,
@@ -645,6 +697,188 @@ namespace ExpressPackingMonitoring.Data
                 cmd.Parameters.AddWithValue("@oldPath", oldPath);
                 cmd.Parameters.AddWithValue("@newPath", newPath);
                 cmd.ExecuteNonQuery();
+            }
+        }
+
+        public IReadOnlyList<VideoRecord> GetPendingNetworkArchives(int limit = 20)
+        {
+            lock (_lock)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.CommandText = @"
+                    SELECT Id, OrderId, Mode, VideoCodec, VideoEncoder, FilePath, FileSizeBytes,
+                           StartTime, EndTime, DurationSeconds, StopReason,
+                           IsDeleted, DeletedAt, DeleteReason,
+                           TrackingNumber, SourceOrderId, BuyerMessage, SellerMemo, ProductInfo, OrderInfoPushTime, OrderInfoJson,
+                           SourceType, SourceDeviceId, SourceDeviceName, SourceSessionId, ContentSha256,
+                           LocalFilePath, NetworkFilePath, ArchiveStatus, ProofFilePath, ArchiveRetryCount,
+                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason
+                    FROM VideoRecords
+                    WHERE IsDeleted = 0
+                      AND EndTime IS NOT NULL
+                      AND NetworkFilePath <> ''
+                      AND LocalFilePath <> ''
+                      AND ArchiveStatus IN ('Pending', 'Failed', 'Copying')
+                    ORDER BY StartTime ASC, Id ASC
+                    LIMIT @limit;";
+                cmd.Parameters.AddWithValue("@limit", Math.Clamp(limit, 1, 200));
+                var result = new List<VideoRecord>();
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                    result.Add(ReadVideoRecord(reader));
+                return result;
+            }
+        }
+
+        public (int PendingCount, long PendingBytes, string LastError) GetNetworkArchiveOverview()
+        {
+            lock (_lock)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.CommandText = @"
+                    SELECT COUNT(1), COALESCE(SUM(FileSizeBytes), 0),
+                           COALESCE((SELECT ArchiveError FROM VideoRecords
+                                     WHERE ArchiveError <> '' ORDER BY LastArchiveAttemptAt DESC LIMIT 1), '')
+                    FROM VideoRecords
+                    WHERE IsDeleted = 0 AND NetworkFilePath <> ''
+                      AND ArchiveStatus IN ('Pending', 'Failed', 'Copying', 'Conflict');";
+                using var reader = cmd.ExecuteReader();
+                return reader.Read()
+                    ? (reader.GetInt32(0), reader.GetInt64(1), reader.IsDBNull(2) ? "" : reader.GetString(2))
+                    : (0, 0, "");
+            }
+        }
+
+        public void ConfigureNetworkArchive(long recordId, string localFilePath, string networkFilePath, string proofFilePath = "", bool ready = true)
+        {
+            lock (_lock)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.CommandText = @"
+                    UPDATE VideoRecords SET
+                        FilePath = @localFilePath,
+                        LocalFilePath = @localFilePath,
+                        NetworkFilePath = @networkFilePath,
+                        ProofFilePath = @proofFilePath,
+                        ArchiveStatus = @archiveStatus,
+                        ArchiveError = ''
+                    WHERE Id = @id AND IsDeleted = 0;";
+                cmd.Parameters.AddWithValue("@id", recordId);
+                cmd.Parameters.AddWithValue("@localFilePath", localFilePath ?? "");
+                cmd.Parameters.AddWithValue("@networkFilePath", networkFilePath ?? "");
+                cmd.Parameters.AddWithValue("@proofFilePath", proofFilePath ?? "");
+                cmd.Parameters.AddWithValue("@archiveStatus", ready ? VideoArchiveStatus.Pending : VideoArchiveStatus.LocalOnly);
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        public void UpdateRecordingProof(long recordId, string proofFilePath, string contentSha256)
+        {
+            lock (_lock)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.CommandText = @"
+                    UPDATE VideoRecords SET
+                        ProofFilePath = @proofFilePath,
+                        ContentSha256 = @contentSha256
+                    WHERE Id = @id AND IsDeleted = 0;";
+                cmd.Parameters.AddWithValue("@id", recordId);
+                cmd.Parameters.AddWithValue("@proofFilePath", proofFilePath ?? "");
+                cmd.Parameters.AddWithValue("@contentSha256", contentSha256 ?? "");
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        public void UpdateArchiveState(
+            long recordId,
+            string status,
+            string contentSha256 = "",
+            string error = "",
+            DateTime? attemptedAt = null,
+            DateTime? completedAt = null,
+            bool incrementRetry = false)
+        {
+            lock (_lock)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.CommandText = @"
+                    UPDATE VideoRecords SET
+                        ArchiveStatus = @status,
+                        ContentSha256 = CASE WHEN @sha256 = '' THEN ContentSha256 ELSE @sha256 END,
+                        ArchiveError = @error,
+                        LastArchiveAttemptAt = COALESCE(@attemptedAt, LastArchiveAttemptAt),
+                        ArchiveCompletedAt = COALESCE(@completedAt, ArchiveCompletedAt),
+                        ArchiveRetryCount = ArchiveRetryCount + @retryIncrement
+                    WHERE Id = @id AND IsDeleted = 0;";
+                cmd.Parameters.AddWithValue("@id", recordId);
+                cmd.Parameters.AddWithValue("@status", status ?? VideoArchiveStatus.Failed);
+                cmd.Parameters.AddWithValue("@sha256", contentSha256?.Trim().ToLowerInvariant() ?? "");
+                cmd.Parameters.AddWithValue("@error", error ?? "");
+                cmd.Parameters.AddWithValue("@attemptedAt", attemptedAt.HasValue ? attemptedAt.Value.ToString("yyyy-MM-dd HH:mm:ss") : DBNull.Value);
+                cmd.Parameters.AddWithValue("@completedAt", completedAt.HasValue ? completedAt.Value.ToString("yyyy-MM-dd HH:mm:ss") : DBNull.Value);
+                cmd.Parameters.AddWithValue("@retryIncrement", incrementRetry ? 1 : 0);
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        public void MarkLocalCopyDeleted(long recordId, DateTime deletedAt, string reason)
+        {
+            lock (_lock)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.CommandText = @"
+                    UPDATE VideoRecords SET
+                        LocalFilePath = '',
+                        LocalCopyDeletedAt = @deletedAt,
+                        LocalDeleteReason = @reason,
+                        FilePath = CASE WHEN NetworkFilePath <> '' THEN NetworkFilePath ELSE FilePath END,
+                        ArchiveStatus = CASE WHEN ArchiveStatus = 'Verified' THEN 'LocalDeleted' ELSE ArchiveStatus END
+                    WHERE Id = @id AND IsDeleted = 0;";
+                cmd.Parameters.AddWithValue("@id", recordId);
+                cmd.Parameters.AddWithValue("@deletedAt", deletedAt.ToString("yyyy-MM-dd HH:mm:ss"));
+                cmd.Parameters.AddWithValue("@reason", reason ?? "");
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        public void MarkVideoDeletedById(long recordId, string reason)
+        {
+            lock (_lock)
+            {
+                using var transaction = _connection.BeginTransaction();
+                string deletedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                using (var log = _connection.CreateCommand())
+                {
+                    log.Transaction = transaction;
+                    log.CommandText = @"
+                        INSERT INTO DeleteLogs (FilePath, OrderId, FileSizeBytes, DeletedAt, Reason)
+                        SELECT CASE
+                                   WHEN LocalFilePath <> '' THEN LocalFilePath
+                                   WHEN NetworkFilePath <> '' THEN NetworkFilePath
+                                   ELSE FilePath
+                               END,
+                               OrderId, FileSizeBytes, @deletedAt, @reason
+                        FROM VideoRecords WHERE Id = @id AND IsDeleted = 0;";
+                    log.Parameters.AddWithValue("@id", recordId);
+                    log.Parameters.AddWithValue("@deletedAt", deletedAt);
+                    log.Parameters.AddWithValue("@reason", reason ?? "");
+                    log.ExecuteNonQuery();
+                }
+                using (var update = _connection.CreateCommand())
+                {
+                    update.Transaction = transaction;
+                    update.CommandText = @"
+                        UPDATE VideoRecords SET
+                            IsDeleted = 1,
+                            DeletedAt = @deletedAt,
+                            DeleteReason = @reason
+                        WHERE Id = @id AND IsDeleted = 0;";
+                    update.Parameters.AddWithValue("@id", recordId);
+                    update.Parameters.AddWithValue("@deletedAt", deletedAt);
+                    update.Parameters.AddWithValue("@reason", reason ?? "");
+                    update.ExecuteNonQuery();
+                }
+                transaction.Commit();
             }
         }
 
@@ -962,43 +1196,13 @@ namespace ExpressPackingMonitoring.Data
                            StartTime, EndTime, DurationSeconds, StopReason,
                            IsDeleted, DeletedAt, DeleteReason,
                            TrackingNumber, SourceOrderId, BuyerMessage, SellerMemo, ProductInfo, OrderInfoPushTime, OrderInfoJson,
-                           SourceType, SourceDeviceId, SourceDeviceName, SourceSessionId, ContentSha256
+                           SourceType, SourceDeviceId, SourceDeviceName, SourceSessionId, ContentSha256,
+                           LocalFilePath, NetworkFilePath, ArchiveStatus, ProofFilePath, ArchiveRetryCount,
+                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason
                     FROM VideoRecords WHERE Id = @id AND IsDeleted = 0;";
                 cmd.Parameters.AddWithValue("@id", id);
                 using var reader = cmd.ExecuteReader();
-                if (reader.Read())
-                {
-                    return new VideoRecord
-                    {
-                        Id = reader.GetInt64(0),
-                        OrderId = reader.GetString(1),
-                        Mode = reader.GetString(2),
-                        VideoCodec = reader.IsDBNull(3) ? "" : reader.GetString(3),
-                        VideoEncoder = reader.IsDBNull(4) ? "" : reader.GetString(4),
-                        FilePath = reader.GetString(5),
-                        FileSizeBytes = reader.GetInt64(6),
-                        StartTime = DateTime.Parse(reader.GetString(7)),
-                        EndTime = reader.IsDBNull(8) ? DateTime.MinValue : DateTime.Parse(reader.GetString(8)),
-                        DurationSeconds = reader.GetDouble(9),
-                        StopReason = reader.IsDBNull(10) ? "" : reader.GetString(10),
-                        IsDeleted = reader.GetInt64(11) == 1,
-                        DeletedAt = reader.IsDBNull(12) ? null : DateTime.Parse(reader.GetString(12)),
-                        DeleteReason = reader.IsDBNull(13) ? "" : reader.GetString(13),
-                        TrackingNumber = reader.IsDBNull(14) ? "" : reader.GetString(14),
-                        SourceOrderId = reader.IsDBNull(15) ? "" : reader.GetString(15),
-                        BuyerMessage = reader.IsDBNull(16) ? "" : reader.GetString(16),
-                        SellerMemo = reader.IsDBNull(17) ? "" : reader.GetString(17),
-                        ProductInfo = reader.IsDBNull(18) ? "" : reader.GetString(18),
-                        OrderInfoPushTime = reader.IsDBNull(19) ? null : DateTime.Parse(reader.GetString(19)),
-                        OrderInfoJson = reader.IsDBNull(20) ? "" : reader.GetString(20),
-                        SourceType = reader.IsDBNull(21) ? "pc" : reader.GetString(21),
-                        SourceDeviceId = reader.IsDBNull(22) ? "" : reader.GetString(22),
-                        SourceDeviceName = reader.IsDBNull(23) ? "" : reader.GetString(23),
-                        SourceSessionId = reader.IsDBNull(24) ? "" : reader.GetString(24),
-                        ContentSha256 = reader.IsDBNull(25) ? "" : reader.GetString(25)
-                    };
-                }
-                return null;
+                return reader.Read() ? ReadVideoRecord(reader) : null;
             }
         }
 
@@ -1017,7 +1221,9 @@ namespace ExpressPackingMonitoring.Data
                           StartTime, EndTime, DurationSeconds, StopReason,
                            IsDeleted, DeletedAt, DeleteReason,
                            TrackingNumber, SourceOrderId, BuyerMessage, SellerMemo, ProductInfo, OrderInfoPushTime, OrderInfoJson,
-                           SourceType, SourceDeviceId, SourceDeviceName, SourceSessionId, ContentSha256
+                           SourceType, SourceDeviceId, SourceDeviceName, SourceSessionId, ContentSha256,
+                           LocalFilePath, NetworkFilePath, ArchiveStatus, ProofFilePath, ArchiveRetryCount,
+                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason
                     FROM VideoRecords 
                     WHERE 1 = 1";
 
@@ -1047,35 +1253,7 @@ namespace ExpressPackingMonitoring.Data
                 using var reader = cmd.ExecuteReader();
                 while (reader.Read())
                 {
-                    results.Add(new VideoRecord
-                    {
-                        Id = reader.GetInt64(0),
-                        OrderId = reader.GetString(1),
-                        Mode = reader.GetString(2),
-                        VideoCodec = reader.IsDBNull(3) ? "" : reader.GetString(3),
-                        VideoEncoder = reader.IsDBNull(4) ? "" : reader.GetString(4),
-                        FilePath = reader.GetString(5),
-                        FileSizeBytes = reader.GetInt64(6),
-                        StartTime = DateTime.Parse(reader.GetString(7)),
-                        EndTime = reader.IsDBNull(8) ? DateTime.MinValue : DateTime.Parse(reader.GetString(8)),
-                        DurationSeconds = reader.GetDouble(9),
-                        StopReason = reader.IsDBNull(10) ? "" : reader.GetString(10),
-                        IsDeleted = reader.GetInt64(11) == 1,
-                        DeletedAt = reader.IsDBNull(12) ? null : DateTime.Parse(reader.GetString(12)),
-                        DeleteReason = reader.IsDBNull(13) ? "" : reader.GetString(13),
-                        TrackingNumber = reader.IsDBNull(14) ? "" : reader.GetString(14),
-                        SourceOrderId = reader.IsDBNull(15) ? "" : reader.GetString(15),
-                        BuyerMessage = reader.IsDBNull(16) ? "" : reader.GetString(16),
-                        SellerMemo = reader.IsDBNull(17) ? "" : reader.GetString(17),
-                        ProductInfo = reader.IsDBNull(18) ? "" : reader.GetString(18),
-                        OrderInfoPushTime = reader.IsDBNull(19) ? null : DateTime.Parse(reader.GetString(19)),
-                        OrderInfoJson = reader.IsDBNull(20) ? "" : reader.GetString(20),
-                        SourceType = reader.IsDBNull(21) ? "pc" : reader.GetString(21),
-                        SourceDeviceId = reader.IsDBNull(22) ? "" : reader.GetString(22),
-                        SourceDeviceName = reader.IsDBNull(23) ? "" : reader.GetString(23),
-                        SourceSessionId = reader.IsDBNull(24) ? "" : reader.GetString(24),
-                        ContentSha256 = reader.IsDBNull(25) ? "" : reader.GetString(25)
-                    });
+                    results.Add(ReadVideoRecord(reader));
                 }
                 return results;
             }
@@ -1083,7 +1261,7 @@ namespace ExpressPackingMonitoring.Data
 
         private static VideoRecord ReadVideoRecord(SqliteDataReader reader)
         {
-            return new VideoRecord
+            var record = new VideoRecord
             {
                 Id = reader.GetInt64(0),
                 OrderId = reader.GetString(1),
@@ -1110,8 +1288,22 @@ namespace ExpressPackingMonitoring.Data
                 SourceDeviceId = reader.IsDBNull(22) ? "" : reader.GetString(22),
                 SourceDeviceName = reader.IsDBNull(23) ? "" : reader.GetString(23),
                 SourceSessionId = reader.IsDBNull(24) ? "" : reader.GetString(24),
-                ContentSha256 = reader.IsDBNull(25) ? "" : reader.GetString(25)
+                ContentSha256 = reader.IsDBNull(25) ? "" : reader.GetString(25),
+                LocalFilePath = reader.IsDBNull(26) ? "" : reader.GetString(26),
+                NetworkFilePath = reader.IsDBNull(27) ? "" : reader.GetString(27),
+                ArchiveStatus = reader.IsDBNull(28) ? VideoArchiveStatus.LocalOnly : reader.GetString(28),
+                ProofFilePath = reader.IsDBNull(29) ? "" : reader.GetString(29),
+                ArchiveRetryCount = reader.IsDBNull(30) ? 0 : reader.GetInt32(30),
+                LastArchiveAttemptAt = ReadNullableDateTime(reader, 31),
+                ArchiveCompletedAt = ReadNullableDateTime(reader, 32),
+                ArchiveError = reader.IsDBNull(33) ? "" : reader.GetString(33),
+                LocalCopyDeletedAt = ReadNullableDateTime(reader, 34),
+                LocalDeleteReason = reader.IsDBNull(35) ? "" : reader.GetString(35)
             };
+            string resolvedPath = VideoFileResolver.Resolve(record);
+            if (!string.IsNullOrWhiteSpace(resolvedPath))
+                record.FilePath = resolvedPath;
+            return record;
         }
 
         public PagedVideoResult QueryVideosPaged(
@@ -1231,7 +1423,9 @@ namespace ExpressPackingMonitoring.Data
                            StartTime, EndTime, DurationSeconds, StopReason,
                            IsDeleted, DeletedAt, DeleteReason,
                            TrackingNumber, SourceOrderId, BuyerMessage, SellerMemo, ProductInfo, OrderInfoPushTime, OrderInfoJson,
-                           SourceType, SourceDeviceId, SourceDeviceName, SourceSessionId, ContentSha256 "
+                           SourceType, SourceDeviceId, SourceDeviceName, SourceSessionId, ContentSha256,
+                           LocalFilePath, NetworkFilePath, ArchiveStatus, ProofFilePath, ArchiveRetryCount,
+                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason "
                     + whereSql + @"
                     ORDER BY StartTime DESC, Id DESC
                     LIMIT @limit OFFSET @offset;";
@@ -1345,7 +1539,9 @@ namespace ExpressPackingMonitoring.Data
                            StartTime, EndTime, DurationSeconds, StopReason,
                            IsDeleted, DeletedAt, DeleteReason,
                            TrackingNumber, SourceOrderId, BuyerMessage, SellerMemo, ProductInfo, OrderInfoPushTime, OrderInfoJson,
-                           SourceType, SourceDeviceId, SourceDeviceName, SourceSessionId, ContentSha256
+                           SourceType, SourceDeviceId, SourceDeviceName, SourceSessionId, ContentSha256,
+                           LocalFilePath, NetworkFilePath, ArchiveStatus, ProofFilePath, ArchiveRetryCount,
+                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason
                     FROM VideoRecords
                     WHERE Id IN (" + string.Join(",", parameters) + ");";
                 var result = new Dictionary<long, VideoRecord>();
@@ -1388,7 +1584,9 @@ namespace ExpressPackingMonitoring.Data
                            StartTime, EndTime, DurationSeconds, StopReason,
                            IsDeleted, DeletedAt, DeleteReason,
                            TrackingNumber, SourceOrderId, BuyerMessage, SellerMemo, ProductInfo, OrderInfoPushTime, OrderInfoJson,
-                           SourceType, SourceDeviceId, SourceDeviceName, SourceSessionId, ContentSha256
+                           SourceType, SourceDeviceId, SourceDeviceName, SourceSessionId, ContentSha256,
+                           LocalFilePath, NetworkFilePath, ArchiveStatus, ProofFilePath, ArchiveRetryCount,
+                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason
                     FROM VideoRecords " + whereSql + @"
                     ORDER BY StartTime DESC, Id DESC
                     LIMIT @limit;";
@@ -1764,6 +1962,85 @@ namespace ExpressPackingMonitoring.Data
             if (!File.Exists(sourcePath)) return;
             Directory.CreateDirectory(Path.GetDirectoryName(destinationPath));
             File.Copy(sourcePath, destinationPath, overwrite: false);
+        }
+
+        public IReadOnlyList<VideoRecord> GetRetentionCandidates(int limit = 5000)
+        {
+            lock (_lock)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.CommandText = @"
+                    SELECT Id, OrderId, Mode, VideoCodec, VideoEncoder, FilePath, FileSizeBytes,
+                           StartTime, EndTime, DurationSeconds, StopReason,
+                           IsDeleted, DeletedAt, DeleteReason,
+                           TrackingNumber, SourceOrderId, BuyerMessage, SellerMemo, ProductInfo, OrderInfoPushTime, OrderInfoJson,
+                           SourceType, SourceDeviceId, SourceDeviceName, SourceSessionId, ContentSha256,
+                           LocalFilePath, NetworkFilePath, ArchiveStatus, ProofFilePath, ArchiveRetryCount,
+                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason
+                    FROM VideoRecords
+                    WHERE IsDeleted = 0 AND EndTime IS NOT NULL
+                    ORDER BY StartTime ASC, Id ASC
+                    LIMIT @limit;";
+                cmd.Parameters.AddWithValue("@limit", Math.Clamp(limit, 1, 100000));
+                var result = new List<VideoRecord>();
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                    result.Add(ReadVideoRecord(reader));
+                return result;
+            }
+        }
+
+        private void MigrateLegacyVideoStorageFields()
+        {
+            var pending = new List<(long Id, string FilePath)>();
+            using (var select = _connection.CreateCommand())
+            {
+                select.CommandText = @"
+                    SELECT Id, FilePath
+                    FROM VideoRecords
+                    WHERE COALESCE(LocalFilePath, '') = ''
+                      AND COALESCE(NetworkFilePath, '') = ''
+                      AND COALESCE(FilePath, '') <> '';";
+                using var reader = select.ExecuteReader();
+                while (reader.Read())
+                    pending.Add((reader.GetInt64(0), reader.GetString(1)));
+            }
+
+            if (pending.Count == 0) return;
+
+            using var transaction = _connection.BeginTransaction();
+            foreach ((long id, string filePath) in pending)
+            {
+                bool network = IsNetworkStoragePath(filePath);
+                using var update = _connection.CreateCommand();
+                update.Transaction = transaction;
+                update.CommandText = network
+                    ? @"UPDATE VideoRecords
+                        SET NetworkFilePath = @filePath, ArchiveStatus = 'Verified'
+                        WHERE Id = @id;"
+                    : @"UPDATE VideoRecords
+                        SET LocalFilePath = @filePath, ArchiveStatus = 'LocalOnly'
+                        WHERE Id = @id;";
+                update.Parameters.AddWithValue("@id", id);
+                update.Parameters.AddWithValue("@filePath", filePath);
+                update.ExecuteNonQuery();
+            }
+            transaction.Commit();
+        }
+
+        internal static bool IsNetworkStoragePath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return false;
+            if (path.StartsWith(@"\\", StringComparison.Ordinal)) return true;
+            try
+            {
+                string root = Path.GetPathRoot(Path.GetFullPath(path)) ?? "";
+                return root.Length > 0 && new DriveInfo(root).DriveType == DriveType.Network;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
 

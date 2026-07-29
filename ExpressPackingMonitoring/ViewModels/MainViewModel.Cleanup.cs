@@ -1,6 +1,7 @@
-using ExpressPackingMonitoring.Logging;
 using ExpressPackingMonitoring.Config;
-using System;
+using ExpressPackingMonitoring.Data;
+using ExpressPackingMonitoring.Logging;
+using ExpressPackingMonitoring.Services;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -37,45 +38,19 @@ namespace ExpressPackingMonitoring.ViewModels
             if (Interlocked.Exchange(ref _diskCleanupRunning, 1) == 1) return;
             try
             {
-                if (Config.StorageLocations == null || Config.StorageLocations.Count == 0) return;
+                if (Config.StorageLocations == null || Config.StorageLocations.Count == 0 || _db == null) return;
 
                 bool fullScan = forceFullScan
                     || _lastFullDiskCleanup == DateTime.MinValue
                     || (DateTime.Now - _lastFullDiskCleanup).TotalSeconds >= (IsRecording ? 60 : 180);
 
-                long totalCurrentBytes = fullScan ? 0 : _lastKnownDiskTotalBytes;
-                long totalCapacityBytes = fullScan ? 0 : _lastKnownDiskCapacityBytes;
-
+                long totalCurrentBytes = _lastKnownDiskTotalBytes;
+                long totalCapacityBytes = _lastKnownDiskCapacityBytes;
                 if (fullScan)
                 {
-                    foreach (var loc in Config.StorageLocations)
-                    {
-                        if (string.IsNullOrWhiteSpace(loc.Path)) continue;
-                        string normalizedPath = Path.IsPathRooted(loc.Path) ? loc.Path : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, loc.Path);
-                        if (!Directory.Exists(normalizedPath)) continue;
-
-                        long locVideoBytes = 0;
-                        foreach (var fi in EnumerateVideoFiles(normalizedPath))
-                            locVideoBytes += fi.Length;
-                        totalCurrentBytes += locVideoBytes;
-
-                        long storageCapacity = 0;
-                        try
-                        {
-                            var driveRoot = Path.GetPathRoot(Path.GetFullPath(normalizedPath));
-                            if (!string.IsNullOrEmpty(driveRoot))
-                            {
-                                var driveInfo = new DriveInfo(driveRoot);
-                                if (driveInfo.IsReady)
-                                {
-                                    long reserveBytes = StorageSpacePolicy.GetEffectiveReserveBytes(loc, driveInfo);
-                                    storageCapacity = Math.Max(0, driveInfo.AvailableFreeSpace - reserveBytes) + locVideoBytes;
-                                }
-                            }
-                        }
-                        catch { }
-                        totalCapacityBytes += storageCapacity;
-                    }
+                    (totalCurrentBytes, totalCapacityBytes) = ScanLocalRecordingStorage();
+                    long releasedBytes = ApplyRetentionPolicies(totalCurrentBytes);
+                    totalCurrentBytes = Math.Max(0, totalCurrentBytes - releasedBytes);
 
                     _lastFullDiskCleanup = DateTime.Now;
                     _lastKnownDiskTotalBytes = totalCurrentBytes;
@@ -92,84 +67,296 @@ namespace ExpressPackingMonitoring.ViewModels
                     catch { }
                 }
 
-                if (fullScan && totalCapacityBytes > 0 && totalCurrentBytes > totalCapacityBytes)
-                    CleanupOldVideos(totalCurrentBytes, totalCapacityBytes);
-
                 UpdateDiskUsageText(totalCurrentBytes, totalCapacityBytes);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                RuntimeLog.Warn("Storage", $"Retention scan failed: {ex.Message}");
+            }
             finally
             {
                 Interlocked.Exchange(ref _diskCleanupRunning, 0);
             }
         }
 
-        private void CleanupOldVideos(long totalCurrentBytes, long totalCapacityBytes)
+        private (long UsedBytes, long CapacityBytes) ScanLocalRecordingStorage()
         {
-            long bytesToRelease = totalCurrentBytes - (long)(totalCapacityBytes * 0.9);
-            long releasedBytes = 0;
-            int count = 0;
-
-            var oldestRecords = _db?.GetOldestVideos(500);
-            if (oldestRecords != null)
+            var paths = new List<(string Path, StorageLocation Policy)>();
+            foreach (StorageLocation location in Config.StorageLocations)
             {
-                foreach (var video in oldestRecords)
+                if (string.IsNullOrWhiteSpace(location.Path)
+                    || StorageLocationResolver.IsNetworkPath(location.Path))
+                    continue;
+                paths.Add((NormalizeStoragePath(location.Path), location));
+            }
+
+            if (Config.StorageLocations.Any(location =>
+                    !string.IsNullOrWhiteSpace(location.Path)
+                    && StorageLocationResolver.IsNetworkPath(location.Path))
+                && !string.IsNullOrWhiteSpace(Config.LocalRecordingBufferPath))
+            {
+                string bufferPath = NormalizeStoragePath(Config.LocalRecordingBufferPath);
+                paths.Add((bufferPath, new StorageLocation { Path = bufferPath, ReserveGB = 0 }));
+            }
+
+            var seenFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var seenVolumes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            long usedBytes = 0;
+            long capacityBytes = 0;
+            foreach ((string path, StorageLocation policy) in paths)
+            {
+                if (!Directory.Exists(path)) continue;
+                foreach (FileInfo file in EnumerateVideoFiles(path))
                 {
-                    try
-                    {
-                        if (File.Exists(video.FilePath))
-                        {
-                            long size = new FileInfo(video.FilePath).Length;
-                            File.Delete(video.FilePath);
-                            releasedBytes += size;
-                            count++;
-                        }
-                        _db?.MarkVideoDeleted(video.FilePath, "全局配额清理");
-                        if (releasedBytes >= bytesToRelease) break;
-                    }
-                    catch { }
+                    string fullName = file.FullName;
+                    if (seenFiles.Add(fullName))
+                        usedBytes += file.Length;
+                }
+
+                if (StorageVolumeInfo.TryGet(path, out StorageVolumeInfo volume)
+                    && seenVolumes.Add(volume.RootPath))
+                {
+                    long reserveBytes = StorageSpacePolicy.GetEffectiveReserveBytes(policy, volume);
+                    capacityBytes += Math.Max(0, volume.AvailableFreeSpace - reserveBytes);
                 }
             }
 
-            if (count > 0)
+            return (usedBytes, usedBytes + capacityBytes);
+        }
+
+        private long ApplyRetentionPolicies(long totalCurrentBytes)
+        {
+            IReadOnlyList<VideoRecord> candidates = _db.GetRetentionCandidates();
+            long releasedBytes = 0;
+            int deletedRecords = 0;
+            int deletedLocalCopies = 0;
+            DateTime today = DateTime.Today;
+
+            foreach (VideoRecord record in candidates)
             {
-                _lastKnownDiskTotalBytes = Math.Max(0, _lastKnownDiskTotalBytes - releasedBytes);
+                if (IsCurrentRecording(record)) continue;
+                if (StorageRetentionPolicy.IsExpiredByDate(record, today, Config.MaxRetentionDays))
+                {
+                    long released = TryDeleteExpiredRecord(record, "达到最长保留天数");
+                    if (released > 0)
+                    {
+                        releasedBytes += released;
+                        deletedRecords++;
+                    }
+                }
+            }
+
+            foreach (VideoRecord record in candidates)
+            {
+                if (IsCurrentRecording(record)) continue;
+                if (StorageRetentionPolicy.IsArchivedLocalCopyExpired(record, today))
+                {
+                    long released = TryDeleteVerifiedLocalCopy(record);
+                    if (released > 0)
+                    {
+                        releasedBytes += released;
+                        deletedLocalCopies++;
+                    }
+                }
+            }
+
+            if (Config.EnableMaxStorageUsage && Config.MaxStorageUsageGB > 0)
+            {
+                long maxBytes = (long)Math.Ceiling(Config.MaxStorageUsageGB * StorageSpacePolicy.BytesPerGiB);
+                long currentBytes = Math.Max(0, totalCurrentBytes - releasedBytes);
+                foreach (VideoRecord record in candidates)
+                {
+                    if (currentBytes <= maxBytes) break;
+                    if (IsCurrentRecording(record)) continue;
+
+                    long released = record.ArchiveStatus == VideoArchiveStatus.Verified
+                        ? TryDeleteVerifiedLocalCopy(record)
+                        : TryDeleteExpiredRecord(record, "达到录像最大占用空间");
+                    if (released <= 0) continue;
+
+                    releasedBytes += released;
+                    currentBytes = Math.Max(0, currentBytes - released);
+                    if (record.ArchiveStatus == VideoArchiveStatus.Verified)
+                        deletedLocalCopies++;
+                    else
+                        deletedRecords++;
+                }
+            }
+
+            if (deletedRecords > 0 || deletedLocalCopies > 0)
+            {
+                RuntimeLog.Info(
+                    "Storage",
+                    $"Retention cleanup records={deletedRecords}, localCopies={deletedLocalCopies}, released={releasedBytes}");
                 _ = Application.Current.Dispatcher.InvokeAsync(() =>
                 {
                     if (_isDisposed) return;
-                    ShowToast($"清理：已从多盘回收 {count} 个旧视频");
+                    ShowToast($"存储清理：删除 {deletedRecords} 条过期录像，释放 {releasedBytes / 1024d / 1024d / 1024d:F1} GB");
                     RefreshTodayStats();
                 });
             }
+
+            return releasedBytes;
+        }
+
+        private bool IsCurrentRecording(VideoRecord record) =>
+            record.Id > 0 && record.Id == _currentRecordId;
+
+        private long TryDeleteVerifiedLocalCopy(VideoRecord candidate)
+        {
+            try
+            {
+                using IDisposable ownership = VideoLifecycleCoordinator
+                    .EnterAsync(candidate.Id, CancellationToken.None)
+                    .AsTask().GetAwaiter().GetResult();
+                VideoRecord record = _db.GetVideoById(candidate.Id);
+                if (record == null
+                    || record.ArchiveStatus != VideoArchiveStatus.Verified
+                    || string.IsNullOrWhiteSpace(record.LocalFilePath)
+                    || string.IsNullOrWhiteSpace(record.NetworkFilePath)
+                    || !File.Exists(record.LocalFilePath)
+                    || !File.Exists(record.NetworkFilePath))
+                {
+                    return 0;
+                }
+
+                if (!RemoteArchiveMatches(record))
+                    return 0;
+
+                long released = new FileInfo(record.LocalFilePath).Length;
+                File.Delete(record.LocalFilePath);
+                DeleteOwnedSidecar(record.ProofFilePath, record.LocalFilePath);
+                _db.MarkLocalCopyDeleted(record.Id, DateTime.Now, "网络已校验，本地仅保留昨天和今天");
+                return released;
+            }
+            catch (Exception ex)
+            {
+                RuntimeLog.Warn("Storage", $"Local archive copy cleanup skipped id={candidate.Id}: {ex.Message}");
+                return 0;
+            }
+        }
+
+        private bool RemoteArchiveMatches(VideoRecord record)
+        {
+            try
+            {
+                var local = new FileInfo(record.LocalFilePath);
+                var remote = new FileInfo(record.NetworkFilePath);
+                if (local.Length != remote.Length) return false;
+                if (string.IsNullOrWhiteSpace(record.ContentSha256)) return true;
+                string remoteHash = NetworkArchiveService
+                    .ComputeSha256Async(record.NetworkFilePath, CancellationToken.None)
+                    .GetAwaiter().GetResult();
+                return string.Equals(remoteHash, record.ContentSha256, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private long TryDeleteExpiredRecord(VideoRecord candidate, string reason)
+        {
+            try
+            {
+                using IDisposable ownership = VideoLifecycleCoordinator
+                    .EnterAsync(candidate.Id, CancellationToken.None)
+                    .AsTask().GetAwaiter().GetResult();
+                VideoRecord record = _db.GetVideoById(candidate.Id);
+                if (record == null || IsCurrentRecording(record)) return 0;
+
+                bool hasPublishedNetworkFile = record.ArchiveStatus is VideoArchiveStatus.Verified or VideoArchiveStatus.LocalDeleted;
+                if (hasPublishedNetworkFile
+                    && !string.IsNullOrWhiteSpace(record.NetworkFilePath)
+                    && !File.Exists(record.NetworkFilePath))
+                {
+                    RuntimeLog.Warn("Storage", $"Expired network record deferred because target is unavailable id={record.Id}, target={record.NetworkFilePath}");
+                    return 0;
+                }
+
+                long released = 0;
+                if (!string.IsNullOrWhiteSpace(record.LocalFilePath) && File.Exists(record.LocalFilePath))
+                {
+                    released += new FileInfo(record.LocalFilePath).Length;
+                    File.Delete(record.LocalFilePath);
+                }
+                if (hasPublishedNetworkFile
+                    && !string.IsNullOrWhiteSpace(record.NetworkFilePath)
+                    && File.Exists(record.NetworkFilePath))
+                {
+                    File.Delete(record.NetworkFilePath);
+                    DeleteSidecar(Path.ChangeExtension(record.NetworkFilePath, ".proof.json"));
+                }
+                DeleteOwnedSidecar(record.ProofFilePath, record.LocalFilePath);
+                _db.MarkVideoDeletedById(
+                    record.Id,
+                    hasPublishedNetworkFile ? reason : $"{reason}（未完成网络归档）");
+                RuntimeLog.Info("Storage", $"Deleted expired recording id={record.Id}, reason={reason}");
+                return released > 0 ? released : Math.Max(1, record.FileSizeBytes);
+            }
+            catch (Exception ex)
+            {
+                RuntimeLog.Warn("Storage", $"Expired record cleanup skipped id={candidate.Id}: {ex.Message}");
+                return 0;
+            }
+        }
+
+        private static void DeleteOwnedSidecar(string proofPath, string localVideoPath)
+        {
+            if (string.IsNullOrWhiteSpace(proofPath) || string.IsNullOrWhiteSpace(localVideoPath)) return;
+            string? proofDirectory = Path.GetDirectoryName(Path.GetFullPath(proofPath));
+            string? videoDirectory = Path.GetDirectoryName(Path.GetFullPath(localVideoPath));
+            if (string.Equals(proofDirectory, videoDirectory, StringComparison.OrdinalIgnoreCase))
+                DeleteSidecar(proofPath);
+        }
+
+        private static void DeleteSidecar(string path)
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+                    File.Delete(path);
+            }
+            catch { }
         }
 
         private void UpdateDiskUsageText(long totalCurrentBytes, long totalCapacityBytes)
         {
-            double totalUsedGB = totalCurrentBytes / 1073741824.0;
-            double totalCapacityGB = totalCapacityBytes / 1073741824.0;
-            string estimateText = "";
-            try
+            double usedGB = totalCurrentBytes / (double)StorageSpacePolicy.BytesPerGiB;
+            double capacityGB = totalCapacityBytes / (double)StorageSpacePolicy.BytesPerGiB;
+            long effectiveCapacity = totalCapacityBytes;
+            if (Config.EnableMaxStorageUsage && Config.MaxStorageUsageGB > 0)
             {
-                var (dbTotalBytes, dbTotalSec) = _db?.GetGlobalSizeAndDuration() ?? (0, 0);
-                if (dbTotalBytes > 0 && dbTotalSec > 0)
-                {
-                    double bytesPerSec = dbTotalBytes / dbTotalSec;
-                    if (totalCapacityBytes > 0)
-                    {
-                        double retentionHours = totalCapacityBytes / bytesPerSec / 3600.0;
-                        estimateText = retentionHours >= 1
-                            ? $"，预计循环可录 {retentionHours:F0} 小时"
-                            : $"，预计循环可录 {retentionHours * 60:F0} 分钟";
-                    }
-                }
+                effectiveCapacity = Math.Min(
+                    effectiveCapacity,
+                    (long)Math.Ceiling(Config.MaxStorageUsageGB * StorageSpacePolicy.BytesPerGiB));
             }
-            catch { }
+
+            StorageRetentionEstimate estimate = StorageRetentionPolicy.Estimate(
+                _db.GetRangeStats(DateTime.Today.AddDays(-29), DateTime.Today),
+                effectiveCapacity,
+                Config.MaxRetentionDays);
+            (int pendingCount, long pendingBytes, string archiveError) = _db.GetNetworkArchiveOverview();
+
+            string estimateText = estimate.HasEnoughHistory
+                ? $"，预计可保存 {estimate.EstimatedDays:F0} 天"
+                : "，历史数据不足，暂无法估算";
+            string warning = estimate.CannotMeetConfiguredDays
+                ? $"当前目录可能无法达到预期存储时间，预计约 {estimate.EstimatedDays:F0} 天，当前设置 {Config.MaxRetentionDays} 天"
+                : "";
+            string archiveText = pendingCount > 0
+                ? $"；待上传 {pendingCount} 条（{pendingBytes / 1024d / 1024d / 1024d:F1} GB）"
+                : "";
+            if (!string.IsNullOrWhiteSpace(archiveError))
+                archiveText += $"；最近错误：{archiveError}";
 
             _ = Application.Current.Dispatcher.InvokeAsync(() =>
             {
                 if (_isDisposed) return;
-                DiskUsagePercent = totalCapacityGB > 0 ? Math.Min(100.0, (totalUsedGB / totalCapacityGB) * 100.0) : 0;
-                DiskUsageText = $"{totalUsedGB:F1} / {totalCapacityGB:F1} GB{estimateText}";
+                DiskUsagePercent = capacityGB > 0 ? Math.Min(100.0, usedGB / capacityGB * 100.0) : 0;
+                DiskUsageText = $"{usedGB:F1} / {capacityGB:F1} GB{estimateText}{archiveText}";
+                SuggestedRetentionDays = estimate.SuggestedDays;
+                StorageRetentionWarningText = warning;
             });
         }
 
@@ -179,7 +366,7 @@ namespace ExpressPackingMonitoring.ViewModels
         {
             var dir = new DirectoryInfo(folderPath);
             if (!dir.Exists) yield break;
-            foreach (var file in dir.EnumerateFiles("*.*", SearchOption.AllDirectories))
+            foreach (FileInfo file in dir.EnumerateFiles("*.*", SearchOption.AllDirectories))
             {
                 if (_videoExtensions.Contains(file.Extension, StringComparer.OrdinalIgnoreCase))
                     yield return file;

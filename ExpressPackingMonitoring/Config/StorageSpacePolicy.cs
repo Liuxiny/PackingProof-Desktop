@@ -9,15 +9,34 @@ namespace ExpressPackingMonitoring.Config
 
         public static long CalculateMinimumReserveBytes(DriveInfo drive)
         {
-            bool isSystemDrive = IsSystemDrive(drive.RootDirectory.FullName);
+            return CalculateMinimumReserveBytes(drive.RootDirectory.FullName, drive.TotalSize);
+        }
+
+        internal static long CalculateMinimumReserveBytes(StorageVolumeInfo volume)
+        {
+            return CalculateMinimumReserveBytes(volume.RootPath, volume.TotalSize);
+        }
+
+        private static long CalculateMinimumReserveBytes(string rootPath, long totalSize)
+        {
+            bool isSystemDrive = IsSystemDrive(rootPath);
             long minimumBytes = (isSystemDrive ? 30L : 20L) * BytesPerGiB;
-            long percentBytes = (long)Math.Ceiling(drive.TotalSize * (isSystemDrive ? 0.10 : 0.05) / (double)BytesPerGiB) * BytesPerGiB;
+            long percentBytes = (long)Math.Ceiling(totalSize * (isSystemDrive ? 0.10 : 0.05) / (double)BytesPerGiB) * BytesPerGiB;
             return Math.Max(minimumBytes, percentBytes);
         }
 
         public static long GetEffectiveReserveBytes(StorageLocation location, DriveInfo drive)
         {
             long minimumReserveBytes = CalculateMinimumReserveBytes(drive);
+            long configuredReserveBytes = location.ReserveGB > 0
+                ? (long)Math.Ceiling(location.ReserveGB) * BytesPerGiB
+                : 0;
+            return Math.Max(minimumReserveBytes, configuredReserveBytes);
+        }
+
+        internal static long GetEffectiveReserveBytes(StorageLocation location, StorageVolumeInfo volume)
+        {
+            long minimumReserveBytes = CalculateMinimumReserveBytes(volume);
             long configuredReserveBytes = location.ReserveGB > 0
                 ? (long)Math.Ceiling(location.ReserveGB) * BytesPerGiB
                 : 0;
@@ -47,12 +66,8 @@ namespace ExpressPackingMonitoring.Config
                 string normalizedPath = Path.IsPathRooted(path)
                     ? path
                     : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, path);
-                string? root = Path.GetPathRoot(Path.GetFullPath(normalizedPath));
-                if (string.IsNullOrEmpty(root)) return 20.0;
-
-                var drive = new DriveInfo(root);
-                if (!drive.IsReady) return 20.0;
-                return Math.Ceiling(CalculateMinimumReserveBytes(drive) / (double)BytesPerGiB);
+                if (!StorageVolumeInfo.TryGet(normalizedPath, out StorageVolumeInfo volume)) return 20.0;
+                return Math.Ceiling(CalculateMinimumReserveBytes(volume) / (double)BytesPerGiB);
             }
             catch
             {

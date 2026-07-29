@@ -1,5 +1,6 @@
 using ExpressPackingMonitoring.Config;
 using ExpressPackingMonitoring.Services;
+using ExpressPackingMonitoring.Helpers;
 using System.Text.Json;
 using Xunit;
 
@@ -22,6 +23,64 @@ public sealed class DefaultConfigurationTests
         AppConfig.NormalizeAfterLoad(config);
 
         Assert.False(config.AutoStartOnBoot);
+    }
+
+    [Fact]
+    public void AppConfig_UsesDateRetentionAndUnlimitedCapacityByDefault()
+    {
+        AppConfig config = JsonSerializer.Deserialize<AppConfig>("{}")!;
+
+        AppConfig.NormalizeAfterLoad(config);
+
+        Assert.Equal(90, config.MaxRetentionDays);
+        Assert.False(config.EnableMaxStorageUsage);
+        Assert.Equal(0, config.MaxStorageUsageGB);
+        Assert.Equal(60, config.MaxDurationSeconds);
+        Assert.Equal("auto", config.VideoEncoder);
+    }
+
+    [Fact]
+    public void NormalizeAfterLoad_ClampsRetentionMinimumWithoutMaximum()
+    {
+        var tooShort = new AppConfig { MaxRetentionDays = 1 };
+        var veryLong = new AppConfig { MaxRetentionDays = 50000 };
+
+        AppConfig.NormalizeAfterLoad(tooShort);
+        AppConfig.NormalizeAfterLoad(veryLong);
+
+        Assert.Equal(15, tooShort.MaxRetentionDays);
+        Assert.Equal(50000, veryLong.MaxRetentionDays);
+    }
+
+    [Fact]
+    public void NormalizeAfterLoad_MigratesEnabledLegacyDurationAndEncoder()
+    {
+        AppConfig config = JsonSerializer.Deserialize<AppConfig>(
+            "{\"EnableMaxDuration\":true,\"MaxDurationMinutes\":5,\"GpuEncoder\":\"intel\",\"VideoCodec\":\"h265\"}")!;
+
+        AppConfig.NormalizeAfterLoad(config);
+
+        Assert.Equal(300, config.MaxDurationSeconds);
+        Assert.Equal("hevc_qsv", config.VideoEncoder);
+    }
+
+    [Theory]
+    [InlineData(1, 15)]
+    [InlineData(60, 60)]
+    [InlineData(601, 600)]
+    public void NormalizeAfterLoad_ClampsMaximumDurationSeconds(int requested, int expected)
+    {
+        var config = new AppConfig { MaxDurationSeconds = requested };
+        AppConfig.NormalizeAfterLoad(config);
+        Assert.Equal(expected, config.MaxDurationSeconds);
+    }
+
+    [Fact]
+    public void FixedEncoderNeverAllowsAutomaticFallback()
+    {
+        Assert.True(EncodingHelper.AllowsAutomaticFallback(new AppConfig { VideoEncoder = "auto" }));
+        Assert.False(EncodingHelper.AllowsAutomaticFallback(new AppConfig { VideoEncoder = "h264_qsv" }));
+        Assert.False(EncodingHelper.AllowsAutomaticFallback(new AppConfig { VideoEncoder = "libx265" }));
     }
 
     [Fact]
