@@ -1,6 +1,7 @@
 using ExpressPackingMonitoring.Logging;
 using ExpressPackingMonitoring.Helpers;
 using ExpressPackingMonitoring.Data;
+using ExpressPackingMonitoring.Services;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -12,6 +13,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Input;
 using System.Windows.Threading;
 using LibVLCSharp.Shared;
 
@@ -19,6 +22,7 @@ namespace ExpressPackingMonitoring.UI
 {
     public class VideoItem
     {
+        public long RecordId { get; set; }
         public string DisplayName { get; set; } = "";
         public string FullPath { get; set; } = "";
         public string OrderId { get; set; } = "";
@@ -30,6 +34,16 @@ namespace ExpressPackingMonitoring.UI
         public string VideoEncoder { get; set; } = "";
         public string SourceDisplay { get; set; } = "";
         public string ProofDisplay { get; set; } = "";
+        public string PhotoPath { get; set; } = "";
+        public ImageSource? PhotoThumbnail { get; set; }
+        public bool HasPhoto { get; set; }
+        public DateTime? PhotoCapturedAt { get; set; }
+        public int PhotoWidth { get; set; }
+        public int PhotoHeight { get; set; }
+        public long TotalSizeBytes { get; set; }
+        public bool CanDelete { get; set; }
+        public string DeleteDisabledReason { get; set; } = "";
+        public bool IsDeletePending { get; set; }
         public bool IsMissing { get; set; }
         public bool IsDeleted { get; set; }
         public string DeleteReason { get; set; } = "";
@@ -59,6 +73,9 @@ namespace ExpressPackingMonitoring.UI
                     return $"已清理 ({reason} {time})";
                 }
 
+                if (IsDeletePending)
+                    return "等待网络删除";
+
                 return IsMissing ? "文件已丢失" : "";
             }
         }
@@ -71,6 +88,9 @@ namespace ExpressPackingMonitoring.UI
         private readonly string _folderPath;
         private readonly VideoDatabase? _db;
         private readonly bool _showDeletedVideos;
+        private readonly RecordingDeletionService? _deletionService;
+        private readonly Func<long, bool>? _isCurrentRecording;
+        private readonly PhotoThumbnailCache _photoThumbnailCache = new(120);
         private readonly DispatcherTimer _timer;
         private readonly DispatcherTimer _searchTimer;
         private readonly string[] _videoExtensions = [".mp4", ".mkv"];
@@ -89,15 +109,23 @@ namespace ExpressPackingMonitoring.UI
         private int _totalVideos;
         private int _videoLoadRequestVersion;
         private VideoLoadRequest? _pendingVideoLoad;
+        private CancellationTokenSource? _videoLoadCancellation;
         private long _currentMediaLengthMs;
         private readonly SemaphoreSlim _playerSemaphore = new SemaphoreSlim(1, 1);
 
-        public PlaybackWindow(string folderPath, VideoDatabase? db = null, bool showDeletedVideos = true)
+        internal PlaybackWindow(
+            string folderPath,
+            VideoDatabase? db = null,
+            bool showDeletedVideos = true,
+            RecordingDeletionService? deletionService = null,
+            Func<long, bool>? isCurrentRecording = null)
         {
             InitializeComponent();
             _folderPath = folderPath;
             _db = db;
             _showDeletedVideos = showDeletedVideos;
+            _deletionService = deletionService;
+            _isCurrentRecording = isCurrentRecording;
 
             _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
             _timer.Tick += Timer_Tick;
@@ -150,7 +178,10 @@ namespace ExpressPackingMonitoring.UI
             string? keyword = SearchBox?.Text.Trim();
             int page = Math.Max(1, requestedPage ?? _currentPage);
 
-            _pendingVideoLoad = new VideoLoadRequest(start, end, keyword, page);
+            _videoLoadCancellation?.Cancel();
+            _videoLoadCancellation?.Dispose();
+            _videoLoadCancellation = new CancellationTokenSource();
+            _pendingVideoLoad = new VideoLoadRequest(start, end, keyword, page, _videoLoadCancellation.Token);
             _videoLoadRequestVersion++;
             if (!_videoLoadLoopRunning)
                 _ = ProcessVideoLoadQueueAsync();
@@ -171,7 +202,8 @@ namespace ExpressPackingMonitoring.UI
                     try
                     {
                         result = await Task.Run(() =>
-                            BuildVideoPage(request.Start, request.End, request.Keyword, request.Page));
+                            BuildVideoPage(request.Start, request.End, request.Keyword, request.Page, request.CancellationToken),
+                            request.CancellationToken);
                         if (!IsCurrentLoadRequest(requestVersion, _videoLoadRequestVersion, _isClosing))
                             continue;
 
@@ -180,12 +212,17 @@ namespace ExpressPackingMonitoring.UI
                         if (pageCount > 0 && normalizedPage != request.Page)
                         {
                             result = await Task.Run(() =>
-                                BuildVideoPage(request.Start, request.End, request.Keyword, normalizedPage));
+                                BuildVideoPage(request.Start, request.End, request.Keyword, normalizedPage, request.CancellationToken),
+                                request.CancellationToken);
                             if (!IsCurrentLoadRequest(requestVersion, _videoLoadRequestVersion, _isClosing))
                                 continue;
                         }
 
                         _currentPage = normalizedPage;
+                    }
+                    catch (OperationCanceledException) when (request.CancellationToken.IsCancellationRequested)
+                    {
+                        continue;
                     }
                     catch (Exception ex)
                     {
@@ -215,7 +252,12 @@ namespace ExpressPackingMonitoring.UI
             }
         }
 
-        private (List<VideoItem> Items, int Total) BuildVideoPage(DateTime? start, DateTime? end, string? keyword, int page)
+        private (List<VideoItem> Items, int Total) BuildVideoPage(
+            DateTime? start,
+            DateTime? end,
+            string? keyword,
+            int page,
+            CancellationToken cancellationToken)
         {
             var videos = new List<VideoItem>();
             if (_db != null)
@@ -241,15 +283,25 @@ namespace ExpressPackingMonitoring.UI
                             includeDeleted: _showDeletedVideos,
                             searchMode: VideoSearchMode.OrderIdentifierContains);
                     }
+                    IReadOnlyDictionary<long, RecordingDeleteJob> pendingDeletes = _db
+                        .GetPendingRecordingDeleteJobs(1000)
+                        .ToDictionary(job => job.RecordId);
                     foreach (var record in result.Records)
                     {
+                        cancellationToken.ThrowIfCancellationRequested();
                         bool deleted = record.IsDeleted;
-                        bool missing = !deleted && !File.Exists(record.FilePath);
-                        FileInfo? info = (deleted || missing) ? null : new FileInfo(record.FilePath);
+                        string videoPath = VideoFileResolver.Resolve(record);
+                        bool missing = !deleted && !File.Exists(videoPath);
+                        FileInfo? info = (deleted || missing) ? null : new FileInfo(videoPath);
+                        string photoPath = record.ResolvedPhotoPath;
+                        bool hasPhoto = !deleted && !string.IsNullOrWhiteSpace(photoPath) && File.Exists(photoPath);
+                        bool currentRecording = _isCurrentRecording?.Invoke(record.Id) == true;
+                        bool deletePending = pendingDeletes.ContainsKey(record.Id);
                         videos.Add(new VideoItem
                         {
+                            RecordId = record.Id,
                             DisplayName = GetOrderDisplayName(record.TrackingNumber, record.OrderId, record.FileName),
-                            FullPath = record.FilePath,
+                            FullPath = videoPath,
                             OrderId = record.OrderId,
                             Mode = record.Mode,
                             Duration = record.DurationSeconds > 0 ? $"{(int)record.DurationSeconds}s" : "",
@@ -262,6 +314,20 @@ namespace ExpressPackingMonitoring.UI
                                 record.SourceDeviceId,
                                 record.SourceDeviceName),
                             ProofDisplay = GetProofDisplay(record),
+                            PhotoPath = photoPath,
+                            PhotoThumbnail = hasPhoto ? _photoThumbnailCache.Get(photoPath, cancellationToken) : null,
+                            HasPhoto = hasPhoto,
+                            PhotoCapturedAt = record.PhotoCapturedAt,
+                            PhotoWidth = record.PhotoWidth,
+                            PhotoHeight = record.PhotoHeight,
+                            TotalSizeBytes = record.FileSizeBytes + record.PhotoFileSizeBytes,
+                            CanDelete = _deletionService != null && !deleted && !currentRecording && !deletePending,
+                            DeleteDisabledReason = currentRecording
+                                ? "当前正在录制，不能删除"
+                                : deletePending
+                                    ? "删除任务正在处理"
+                                    : _deletionService == null ? "当前来源不支持数据库删除" : "",
+                            IsDeletePending = deletePending,
                             IsMissing = missing,
                             IsDeleted = deleted,
                             DeleteReason = record.DeleteReason,
@@ -442,10 +508,14 @@ namespace ExpressPackingMonitoring.UI
             _isClosing = true;
             _pendingVideoLoad = null;
             _videoLoadRequestVersion++;
+            _videoLoadCancellation?.Cancel();
+            _videoLoadCancellation?.Dispose();
+            _videoLoadCancellation = null;
 
             // 1. 停止计时器
             _timer?.Stop();
             _searchTimer?.Stop();
+            _photoThumbnailCache.Clear();
 
             // 2. 彻底释放 LibVLC 资源（注意顺序）
             if (_mediaPlayer != null)
@@ -606,6 +676,85 @@ namespace ExpressPackingMonitoring.UI
             }
         }
 
+        private void BtnShowPhoto_Click(object sender, RoutedEventArgs e)
+        {
+            e.Handled = true;
+            if ((sender as FrameworkElement)?.DataContext is not VideoItem video
+                || !video.HasPhoto
+                || string.IsNullOrWhiteSpace(video.PhotoPath)
+                || !File.Exists(video.PhotoPath))
+            {
+                AppDialog.ShowMessage(this, "该录像没有可用的原始照片", "查看照片", AppDialogSeverity.Information);
+                return;
+            }
+
+            var viewer = new RecordingPhotoViewer(
+                video.PhotoPath,
+                video.PhotoWidth,
+                video.PhotoHeight,
+                video.PhotoCapturedAt)
+            {
+                Owner = this
+            };
+            viewer.ShowDialog();
+        }
+
+        private async void BtnDeleteVideo_Click(object sender, RoutedEventArgs e)
+        {
+            e.Handled = true;
+            if ((sender as FrameworkElement)?.DataContext is not VideoItem video)
+                return;
+            if (!video.CanDelete || _deletionService == null)
+            {
+                AppDialog.ShowMessage(
+                    this,
+                    string.IsNullOrWhiteSpace(video.DeleteDisabledReason) ? "当前录像不能删除" : video.DeleteDisabledReason,
+                    "无法删除",
+                    AppDialogSeverity.Information);
+                return;
+            }
+
+            string locations = video.FullPath.StartsWith(@"\\", StringComparison.Ordinal) ? "网络路径" : "本地路径";
+            if (!AppDialog.Confirm(
+                    this,
+                    $"确定永久删除这段录像及其关联资产吗？\n\n单号：{video.DisplayName}\n录像时间：{video.File?.CreationTime:yyyy-MM-dd HH:mm:ss}\n合计大小：{FormatFileSize(video.TotalSizeBytes)}\n位置：{locations}\n范围：视频、原始照片、联合证明和所属临时文件\n\n网络离线时将保存删除任务，联网后继续处理。",
+                    "二次确认删除",
+                    confirmText: "永久删除",
+                    cancelText: "取消",
+                    severity: AppDialogSeverity.Warning,
+                    isDangerous: true))
+            {
+                return;
+            }
+
+            if (ReferenceEquals(VideoList.SelectedItem, video))
+            {
+                _timer.Stop();
+                try { _mediaPlayer?.Stop(); } catch { }
+                UpdatePlayState(false);
+            }
+
+            try
+            {
+                video.CanDelete = false;
+                RecordingDeletionResult result = await _deletionService.DeleteAsync(
+                    video.RecordId,
+                    CancellationToken.None);
+                _photoThumbnailCache.Remove(video.PhotoPath);
+                AppDialog.ShowMessage(
+                    this,
+                    result.Message,
+                    result.Completed ? "删除完成" : result.WaitingForNetwork ? "等待网络删除" : "删除未完成",
+                    result.Completed ? AppDialogSeverity.Information : AppDialogSeverity.Warning);
+                RequestVideoLoad(_currentPage);
+            }
+            catch (Exception ex)
+            {
+                AppDialog.ShowMessage(this, $"删除失败：{ex.Message}", "删除失败", AppDialogSeverity.Warning);
+                RequestVideoLoad(_currentPage);
+            }
+        }
+
         private void UpdatePlayState(bool isPlaying)
         {
             _isPlaying = isPlaying;
@@ -759,6 +908,193 @@ namespace ExpressPackingMonitoring.UI
             DateTime? Start,
             DateTime? End,
             string? Keyword,
-            int Page);
+            int Page,
+            CancellationToken CancellationToken);
+    }
+
+    internal sealed class PhotoThumbnailCache
+    {
+        private readonly int _capacity;
+        private readonly object _sync = new();
+        private readonly Dictionary<string, BitmapSource> _items = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Queue<string> _order = new();
+
+        public PhotoThumbnailCache(int capacity)
+        {
+            _capacity = Math.Max(10, capacity);
+        }
+
+        public BitmapSource? Get(string path, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_sync)
+            {
+                if (_items.TryGetValue(path, out BitmapSource? cached))
+                    return cached;
+            }
+
+            try
+            {
+                using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                var image = new BitmapImage();
+                image.BeginInit();
+                image.CacheOption = BitmapCacheOption.OnLoad;
+                image.DecodePixelWidth = 160;
+                image.StreamSource = stream;
+                image.EndInit();
+                cancellationToken.ThrowIfCancellationRequested();
+                image.Freeze();
+                lock (_sync)
+                {
+                    _items[path] = image;
+                    _order.Enqueue(path);
+                    while (_items.Count > _capacity && _order.TryDequeue(out string? oldest))
+                        _items.Remove(oldest);
+                }
+                return image;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public void Remove(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return;
+            lock (_sync) _items.Remove(path);
+        }
+
+        public void Clear()
+        {
+            lock (_sync)
+            {
+                _items.Clear();
+                _order.Clear();
+            }
+        }
+
+        internal int Count
+        {
+            get { lock (_sync) return _items.Count; }
+        }
+    }
+
+    internal sealed class RecordingPhotoViewer : Window
+    {
+        private readonly ScrollViewer _scrollViewer;
+        private readonly Image _image;
+        private readonly ScaleTransform _scale = new(1, 1);
+        private Point? _dragStart;
+        private double _horizontalStart;
+        private double _verticalStart;
+
+        public RecordingPhotoViewer(string photoPath, int width, int height, DateTime? capturedAt)
+        {
+            Title = "原始照片";
+            Width = 1000;
+            Height = 760;
+            WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            Background = Brushes.Black;
+
+            var root = new Grid();
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            _scrollViewer = new ScrollViewer
+            {
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                PanningMode = PanningMode.Both,
+                Cursor = Cursors.Hand,
+                HorizontalContentAlignment = HorizontalAlignment.Center,
+                VerticalContentAlignment = VerticalAlignment.Center
+            };
+            _image = new Image
+            {
+                Source = LoadOriginal(photoPath),
+                Stretch = Stretch.None,
+                LayoutTransform = _scale
+            };
+            _scrollViewer.Content = _image;
+            _scrollViewer.PreviewMouseWheel += OnMouseWheel;
+            _scrollViewer.PreviewMouseLeftButtonDown += OnMouseDown;
+            _scrollViewer.PreviewMouseMove += OnMouseMove;
+            _scrollViewer.PreviewMouseLeftButtonUp += OnMouseUp;
+            root.Children.Add(_scrollViewer);
+
+            var info = new TextBlock
+            {
+                Text = $"{width} × {height}    拍摄时间：{capturedAt:yyyy-MM-dd HH:mm:ss.fff}    滚轮缩放，按住左键拖动，双击适应窗口",
+                Foreground = Brushes.White,
+                Background = new SolidColorBrush(Color.FromRgb(32, 32, 32)),
+                Padding = new Thickness(12, 8, 12, 8)
+            };
+            Grid.SetRow(info, 1);
+            root.Children.Add(info);
+            Content = root;
+            Loaded += (_, _) => FitToWindow();
+        }
+
+        private static BitmapSource LoadOriginal(string path)
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            var image = new BitmapImage();
+            image.BeginInit();
+            image.CacheOption = BitmapCacheOption.OnLoad;
+            image.StreamSource = stream;
+            image.EndInit();
+            image.Freeze();
+            return image;
+        }
+
+        private void OnMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            double next = Math.Clamp(_scale.ScaleX * (e.Delta > 0 ? 1.15 : 1 / 1.15), 0.1, 8);
+            _scale.ScaleX = next;
+            _scale.ScaleY = next;
+            e.Handled = true;
+        }
+
+        private void OnMouseDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ClickCount == 2)
+            {
+                FitToWindow();
+                e.Handled = true;
+                return;
+            }
+            _dragStart = e.GetPosition(_scrollViewer);
+            _horizontalStart = _scrollViewer.HorizontalOffset;
+            _verticalStart = _scrollViewer.VerticalOffset;
+            _scrollViewer.CaptureMouse();
+        }
+
+        private void OnMouseMove(object sender, MouseEventArgs e)
+        {
+            if (_dragStart == null || e.LeftButton != MouseButtonState.Pressed) return;
+            Point current = e.GetPosition(_scrollViewer);
+            _scrollViewer.ScrollToHorizontalOffset(_horizontalStart + _dragStart.Value.X - current.X);
+            _scrollViewer.ScrollToVerticalOffset(_verticalStart + _dragStart.Value.Y - current.Y);
+        }
+
+        private void OnMouseUp(object sender, MouseButtonEventArgs e)
+        {
+            _dragStart = null;
+            _scrollViewer.ReleaseMouseCapture();
+        }
+
+        private void FitToWindow()
+        {
+            if (_image.Source is not BitmapSource source) return;
+            double availableWidth = Math.Max(1, _scrollViewer.ViewportWidth - 24);
+            double availableHeight = Math.Max(1, _scrollViewer.ViewportHeight - 24);
+            double fit = Math.Min(1, Math.Min(
+                availableWidth / Math.Max(1, source.PixelWidth),
+                availableHeight / Math.Max(1, source.PixelHeight)));
+            _scale.ScaleX = fit;
+            _scale.ScaleY = fit;
+            _scrollViewer.ScrollToHorizontalOffset(0);
+            _scrollViewer.ScrollToVerticalOffset(0);
+        }
     }
 }

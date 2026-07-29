@@ -141,12 +141,18 @@ New-DefaultTtsCache
 if ($LASTEXITCODE -ne 0) { throw "Main application publish failed" }
 $publishedFfmpeg = Join-Path $appPublishDir "tools\ffmpeg.exe"
 if (-not (Test-Path -LiteralPath $publishedFfmpeg -PathType Leaf)) {
-    $ffmpegCommand = Get-Command ffmpeg.exe -ErrorAction SilentlyContinue
-    if ($null -eq $ffmpegCommand) {
+    $ffmpegSource = $env:EPM_FFMPEG_PATH
+    if ($ffmpegSource -and (Test-Path -LiteralPath $ffmpegSource -PathType Container)) {
+        $ffmpegSource = Join-Path $ffmpegSource "bin\ffmpeg.exe"
+    }
+    if (-not $ffmpegSource -or -not (Test-Path -LiteralPath $ffmpegSource -PathType Leaf)) {
+        $ffmpegSource = (Get-Command ffmpeg.exe -ErrorAction SilentlyContinue)?.Source
+    }
+    if (-not $ffmpegSource -or -not (Test-Path -LiteralPath $ffmpegSource -PathType Leaf)) {
         throw "ffmpeg.exe was not found in the project or system PATH"
     }
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $publishedFfmpeg) | Out-Null
-    Copy-Item -LiteralPath $ffmpegCommand.Source -Destination $publishedFfmpeg -Force
+    Copy-Item -LiteralPath $ffmpegSource -Destination $publishedFfmpeg -Force
 }
 Copy-PackageTtsCache -AppDir $appPublishDir
 if (-not $SkipTtsCacheGeneration) {

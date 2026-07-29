@@ -272,8 +272,15 @@ namespace ExpressPackingMonitoring.UI
             }
 
             double scale = Math.Min(actualW / sourceW, actualH / sourceH);
-            CameraBarcodeGuide.Width = sourceW * CameraBarcodeFrameDecoder.GuideWidthRatio * scale;
-            CameraBarcodeGuide.Height = sourceH * CameraBarcodeFrameDecoder.GuideHeightRatio * scale;
+            bool zoomEnabled = vm.Config.EnableSmartZoom || vm.PreviewZoomScale.HasValue;
+            double zoomScale = vm.PreviewZoomScale ?? vm.Config.ZoomScale;
+            OpenCvSharp.Rect recognitionRoi = CameraZoomRoi.Calculate(
+                (int)Math.Round(sourceW),
+                (int)Math.Round(sourceH),
+                zoomEnabled,
+                zoomScale);
+            CameraBarcodeGuide.Width = recognitionRoi.Width * scale;
+            CameraBarcodeGuide.Height = recognitionRoi.Height * scale;
         }
 
         private void BtnSettings_Click(object sender, RoutedEventArgs e)

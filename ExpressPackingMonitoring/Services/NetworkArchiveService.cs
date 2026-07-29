@@ -11,10 +11,15 @@ internal sealed class NetworkArchiveService : IDisposable
     private readonly CancellationTokenSource _cts;
     private readonly SemaphoreSlim _wakeSignal = new(0, 1);
     private readonly Task _worker;
+    private readonly bool _automaticWorkerEnabled;
 
-    public NetworkArchiveService(VideoDatabase database, CancellationToken cancellationToken = default)
+    public NetworkArchiveService(
+        VideoDatabase database,
+        CancellationToken cancellationToken = default,
+        bool automaticWorkerEnabled = true)
     {
         _database = database ?? throw new ArgumentNullException(nameof(database));
+        _automaticWorkerEnabled = automaticWorkerEnabled;
         _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _worker = Task.Run(() => RunAsync(_cts.Token));
     }
@@ -43,13 +48,20 @@ internal sealed class NetworkArchiveService : IDisposable
         return completed;
     }
 
+    internal Task<bool> ArchiveRecordOnceAsync(long recordId, CancellationToken cancellationToken) =>
+        TryArchiveAsync(recordId, cancellationToken);
+
+    internal Task<bool> ArchiveRecordUnderOwnershipAsync(long recordId, CancellationToken cancellationToken) =>
+        TryArchiveUnderOwnershipAsync(recordId, cancellationToken);
+
     private async Task RunAsync(CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
         {
             try
             {
-                await ProcessPendingOnceAsync(cancellationToken).ConfigureAwait(false);
+                if (_automaticWorkerEnabled)
+                    await ProcessPendingOnceAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -74,6 +86,11 @@ internal sealed class NetworkArchiveService : IDisposable
     private async Task<bool> TryArchiveAsync(long recordId, CancellationToken cancellationToken)
     {
         using IDisposable ownership = await VideoLifecycleCoordinator.EnterAsync(recordId, cancellationToken);
+        return await TryArchiveUnderOwnershipAsync(recordId, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<bool> TryArchiveUnderOwnershipAsync(long recordId, CancellationToken cancellationToken)
+    {
         VideoRecord record = _database.GetVideoById(recordId);
         if (record == null || record.IsDeleted || string.IsNullOrWhiteSpace(record.NetworkFilePath))
             return false;
@@ -99,6 +116,24 @@ internal sealed class NetworkArchiveService : IDisposable
         {
             string videoSha256 = await PublishFileAsync(localPath, networkPath, recordId, cancellationToken)
                 .ConfigureAwait(false);
+
+            if (!string.IsNullOrWhiteSpace(record.LocalPhotoPath))
+            {
+                if (!File.Exists(record.LocalPhotoPath))
+                    throw new IOException("录像原始照片不存在");
+                string networkPhotoPath = record.NetworkPhotoPath;
+                if (string.IsNullOrWhiteSpace(networkPhotoPath))
+                {
+                    string? networkDirectory = Path.GetDirectoryName(networkPath);
+                    if (string.IsNullOrWhiteSpace(networkDirectory))
+                        throw new IOException("网络照片目标目录无效");
+                    networkPhotoPath = Path.Combine(networkDirectory, Path.GetFileName(record.LocalPhotoPath));
+                    _database.UpdateNetworkPhotoPath(recordId, networkPhotoPath);
+                }
+                await PublishFileAsync(record.LocalPhotoPath, networkPhotoPath, recordId, cancellationToken)
+                    .ConfigureAwait(false);
+                VideoFileResolver.MarkNetworkPathAvailable(networkPhotoPath);
+            }
 
             if (!string.IsNullOrWhiteSpace(record.ProofFilePath))
             {

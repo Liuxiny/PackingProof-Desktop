@@ -42,6 +42,7 @@ namespace ExpressPackingMonitoring.ViewModels
         private readonly string _dbFilePath = AppPaths.VideoDatabasePath;
         private VideoDatabase _db;
         private NetworkArchiveService _networkArchiveService;
+        private RecordingDeletionService _recordingDeletionService;
 
         /// <summary>启动时缓存的可用 GPU 编码器列表</summary>
         public static List<GpuEncoderOption> CachedEncoderOptions { get; private set; }
@@ -53,25 +54,34 @@ namespace ExpressPackingMonitoring.ViewModels
         private Task _cameraForceStopTask;
         private Mat _latestFrame;
         private readonly object _frameLock = new object();
+        private Mat _latestSnapshotFrame;
+        private readonly object _snapshotFrameLock = new object();
+        private long _snapshotFrameSequence;
+        private string _currentPhotoFilePath;
+        private string _currentNetworkPhotoFilePath;
 
         private BlockingCollection<Mat> _videoWriteQueue;
         private Task _writeTask;
         private Task _lastFinalizeTask;
-        private Task _mkvRecoveryTask;
         private Task _postStopMuxTask;
+        private Task _mediaFinalizeWorkerTask;
+        private readonly RecordingActivityGate _recordingActivityGate = new();
         private CancellationTokenSource _writeCts;
         private int _actualCameraFps = 15; // 摄像头硬件实际帧率
         private readonly object _audioLock = new object();
         private NAudio.CoreAudioApi.WasapiCapture _audioCapture;
-        private NAudio.Wave.WaveFileWriter _audioWriter;
+        private System.IO.Pipes.NamedPipeServerStream _audioPipeServer;
+        private Task _audioPipeConnectionTask;
+        private NAudio.Wave.WaveFormat _audioTargetFormat;
+        private string _currentAudioPipeName;
         private BlockingCollection<byte[]> _audioWriteQueue;
         private Task _audioFileWriteTask;
         private bool _audioWriteFailed;
         private bool _audioWriteQueueFullLogged;
         private bool _audioWriteQueueFullReported;
         private bool _audioFailedForCurrentRecording;
-        private string _currentAudioFilePath;
         private string _currentAudioLogPath;
+        private bool _currentRecordingHasAudio;
         private CancellationTokenSource _audioMonitorCts;
         private Task _audioMonitorTask;
         private volatile bool _audioStopRequested;
@@ -710,7 +720,17 @@ namespace ExpressPackingMonitoring.ViewModels
             if (!CanSubmitCameraBarcode())
                 return;
 
-            _cameraBarcodeRecognition?.TrySubmitFrame(frame, allowFullFrame: !IsRecording);
+            bool zoomEnabled = Config.EnableSmartZoom || PreviewZoomScale.HasValue;
+            double zoomScale = PreviewZoomScale ?? Config.ZoomScale;
+            OpenCvSharp.Rect recognitionRoi = CameraZoomRoi.Calculate(
+                frame.Width,
+                frame.Height,
+                zoomEnabled,
+                zoomScale);
+            _cameraBarcodeRecognition?.TrySubmitFrame(
+                frame,
+                allowFullFrame: !IsRecording && !zoomEnabled,
+                recognitionRoi);
         }
 
         private void OnCameraBarcodeConfirmed(string code)
@@ -761,7 +781,9 @@ namespace ExpressPackingMonitoring.ViewModels
                 return;
 
             IsCameraBarcodeCandidate = status.State == CameraBarcodeRecognitionState.Candidate;
-            CameraBarcodeStatusText = IsCameraBarcodeCandidate ? "识别中，请保持稳定" : "将面单条形码放入框内";
+            CameraBarcodeStatusText = IsCameraBarcodeCandidate
+                ? (string.IsNullOrWhiteSpace(status.Feedback) ? "识别中，请保持稳定" : status.Feedback)
+                : (string.IsNullOrWhiteSpace(status.Feedback) ? "将面单条形码放入框内" : status.Feedback);
         }
 
         private async Task ResetCameraBarcodeFeedbackAsync(CancellationTokenSource cts)
@@ -816,7 +838,11 @@ namespace ExpressPackingMonitoring.ViewModels
             try
             {
                 _db = new VideoDatabase(_dbFilePath);
-                _networkArchiveService = new NetworkArchiveService(_db);
+                _networkArchiveService = new NetworkArchiveService(_db, automaticWorkerEnabled: false);
+                _recordingDeletionService = new RecordingDeletionService(
+                    _db,
+                    recordId => IsRecording && recordId == _currentRecordId,
+                    () => _recordingActivityGate.SignalActivity());
             }
             catch (Exception ex)
             {
@@ -916,6 +942,7 @@ namespace ExpressPackingMonitoring.ViewModels
         private async void ToggleRecording() 
         {
             NotifyUserActivity();
+            _recordingActivityGate.SignalActivity();
             if (IsBusy || _isDisposed || _shutdownRequested) return;
             if (!await _recorderLock.WaitAsync(0)) return; 
 
@@ -997,6 +1024,7 @@ namespace ExpressPackingMonitoring.ViewModels
         private async void HandleScan(string scanResult, bool fromCamera)
         {
             NotifyUserActivity();
+            _recordingActivityGate.SignalActivity();
             BarcodeRecordingDecision decision = EvaluateBarcodeRecordingDecision(scanResult, fromCamera);
             if (CameraBarcodeRuntimeOptions.ShadowMode)
                 LogBarcodeRecordingComparison(decision, fromCamera, dryRun: false);
@@ -1449,35 +1477,19 @@ namespace ExpressPackingMonitoring.ViewModels
             if (_isDisposed)
                 return;
 
-            Task previousMuxTask = _postStopMuxTask ?? Task.CompletedTask;
             Task finalizeTask = _lastFinalizeTask ?? Task.CompletedTask;
             _postStopMuxTask = Task.Run(async () =>
             {
                 try
                 {
-                    await previousMuxTask.ConfigureAwait(false);
                     await finalizeTask.ConfigureAwait(false);
                     if (_isDisposed)
                         return;
-
-                    RuntimeLog.Info("MkvToMp4", $"最终停止后开始合成 MP4：reason={reason}");
-                    var result = await BatchConvertMkvToMp4Async(
-                        new Progress<string>(msg => Debug.WriteLine($"[PostStopMux] {msg}")),
-                        CancellationToken.None).ConfigureAwait(false);
-
-                    RuntimeLog.Info(
-                        "MkvToMp4",
-                        $"最终停止后合成完成：reason={reason}, success={result.SuccessCount}, fail={result.FailureCount}, skip={result.SkippedCount}, deferred={result.DeferredCount}, suppressed={result.SuppressedCount}");
-                    ShowMkvFailureToastIfNeeded(result);
+                    RuntimeLog.Info("MediaFinalize", $"录像已进入持久化后处理队列，等待连续空闲 60 秒：reason={reason}");
                 }
                 catch (Exception ex)
                 {
-                    RuntimeLog.Error("MkvToMp4", $"最终停止后合成异常：reason={reason}", ex);
-                    _ = Application.Current.Dispatcher.InvokeAsync(() =>
-                    {
-                        if (!_isDisposed)
-                            ShowToast("视频合成失败，已保留原文件");
-                    });
+                    RuntimeLog.Error("MediaFinalize", $"录像后处理入队异常：reason={reason}", ex);
                 }
             });
         }
@@ -2143,7 +2155,12 @@ namespace ExpressPackingMonitoring.ViewModels
 
             try
             {
-                var playbackWindow = new PlaybackWindow(folderPath, _db, Config.ShowDeletedVideos);
+                var playbackWindow = new PlaybackWindow(
+                    folderPath,
+                    _db,
+                    Config.ShowDeletedVideos,
+                    _recordingDeletionService,
+                    recordId => IsRecording && recordId == _currentRecordId);
                 _playbackWindow = playbackWindow;
                 playbackWindow.Closed += (_, _) =>
                 {
@@ -2173,6 +2190,166 @@ namespace ExpressPackingMonitoring.ViewModels
         /// <summary>
         /// 批量将数据库中的旧 MKV 文件转换为 MP4（无损容器转换）
         /// </summary>
+        private async Task RunMediaFinalizeWorkerAsync(CancellationToken applicationToken)
+        {
+            TimeSpan idleThreshold = TimeSpan.FromSeconds(60);
+            while (!applicationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    if (IsRecording
+                        || _recordingActivityGate.HasActiveOperation
+                        || !_recordingActivityGate.IsContinuouslyIdleFor(idleThreshold, DateTimeOffset.UtcNow))
+                    {
+                        await Task.Delay(1000, applicationToken);
+                        continue;
+                    }
+
+                    using var preemption = CancellationTokenSource.CreateLinkedTokenSource(
+                        applicationToken,
+                        _recordingActivityGate.GetPreemptionToken());
+                    if (_recordingDeletionService != null)
+                    {
+                        int completedDeletes = await _recordingDeletionService.ProcessPendingOnceAsync(preemption.Token);
+                        if (completedDeletes > 0)
+                        {
+                            await Task.Delay(TimeSpan.FromSeconds(10), preemption.Token);
+                            continue;
+                        }
+                    }
+
+                    MediaFinalizeJob job = _db?.GetPendingMediaFinalizeJobs(1).FirstOrDefault();
+                    if (job == null)
+                    {
+                        await Task.Delay(2000, applicationToken);
+                        continue;
+                    }
+
+                    await FinalizeMediaJobAsync(job, preemption.Token);
+
+                    // 每完成一个任务主动让出磁盘，并重新检查是否出现新录像活动。
+                    await Task.Delay(TimeSpan.FromSeconds(10), preemption.Token);
+                }
+                catch (OperationCanceledException) when (!applicationToken.IsCancellationRequested)
+                {
+                    // 新的录像、抓拍或模式切换已抢占后台任务。下一轮仍需重新满足 60 秒空闲。
+                }
+                catch (OperationCanceledException) when (applicationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    RuntimeLog.Error("MediaFinalize", "Idle media worker iteration failed", ex);
+                    try { await Task.Delay(2000, applicationToken); } catch { }
+                }
+            }
+        }
+
+        private async Task FinalizeMediaJobAsync(MediaFinalizeJob job, CancellationToken cancellationToken)
+        {
+            _db?.UpdateMediaFinalizeJob(
+                job.RecordId,
+                MediaFinalizeJobState.Running,
+                "Muxing",
+                incrementAttempt: true);
+            try
+            {
+                using IDisposable ownership = await VideoLifecycleCoordinator.EnterAsync(job.RecordId, cancellationToken);
+                VideoRecord record = _db?.GetVideoById(job.RecordId)
+                    ?? throw new IOException("录像记录不存在");
+                if (record.IsDeleted)
+                    throw new IOException("录像已删除");
+
+                string localVideoPath = !string.IsNullOrWhiteSpace(record.LocalFilePath)
+                    ? record.LocalFilePath
+                    : record.FilePath;
+                if (localVideoPath.EndsWith(".mkv", StringComparison.OrdinalIgnoreCase))
+                {
+                    MkvConversionResult conversion = await Task.Run(
+                        () => ConvertMkvToMp4ForPlayback(localVideoPath, cancellationToken),
+                        cancellationToken);
+                    if (!conversion.Success)
+                        throw new IOException(conversion.ErrorMessage);
+                    localVideoPath = conversion.FilePath;
+                }
+                if (!File.Exists(localVideoPath)
+                    || !localVideoPath.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase))
+                    throw new IOException("最终 MP4 不存在或格式无效");
+
+                cancellationToken.ThrowIfCancellationRequested();
+                _db?.UpdateMediaFinalizeJob(job.RecordId, MediaFinalizeJobState.Running, "Signing");
+                record = _db?.GetVideoById(job.RecordId) ?? record;
+                string photoPath = record.ResolvedPhotoPath;
+                if (record.SourceType == "pc"
+                    && record.PhotoStatus == RecordingPhotoStatus.Ready
+                    && (string.IsNullOrWhiteSpace(photoPath) || !File.Exists(photoPath)))
+                {
+                    throw new IOException("录像原始照片不存在，无法生成联合证明");
+                }
+
+                var metadata = new RecordingProofMetadata(
+                    record.Id,
+                    record.OrderId,
+                    record.Mode,
+                    new DateTimeOffset(record.StartTime),
+                    new DateTimeOffset(record.EndTime),
+                    record.PhotoWidth > 0 ? record.PhotoWidth : Config.FrameWidth,
+                    record.PhotoHeight > 0 ? record.PhotoHeight : Config.FrameHeight,
+                    Config.Fps,
+                    record.VideoEncoder,
+                    "");
+                RecordingProofResult proof = await new RecordingIntegrityService().CreateProofAsync(
+                    localVideoPath,
+                    metadata,
+                    cancellationToken,
+                    string.IsNullOrWhiteSpace(photoPath) ? null : photoPath);
+                _db?.UpdateRecordingProof(record.Id, proof.ProofFilePath, proof.VideoSha256);
+
+                if (!string.IsNullOrWhiteSpace(record.NetworkFilePath))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    _db?.UpdateMediaFinalizeJob(job.RecordId, MediaFinalizeJobState.Running, "Archiving");
+                    string networkVideoPath = Path.ChangeExtension(record.NetworkFilePath, ".mp4");
+                    _db?.ConfigureNetworkArchive(
+                        record.Id,
+                        localVideoPath,
+                        networkVideoPath,
+                        proof.ProofFilePath,
+                        ready: true,
+                        localPhotoPath: record.LocalPhotoPath,
+                        networkPhotoPath: record.NetworkPhotoPath);
+                    if (_networkArchiveService == null
+                        || !await _networkArchiveService.ArchiveRecordUnderOwnershipAsync(record.Id, cancellationToken))
+                    {
+                        throw new IOException("网络归档尚未完成");
+                    }
+                }
+
+                _db?.UpdateMediaFinalizeJob(job.RecordId, MediaFinalizeJobState.Completed, "Completed");
+                RuntimeLog.Info("MediaFinalize", $"Recording aggregate completed id={job.RecordId}, video={Path.GetFileName(localVideoPath)}");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                _db?.UpdateMediaFinalizeJob(
+                    job.RecordId,
+                    MediaFinalizeJobState.Cancelled,
+                    "Queued",
+                    "新录像活动抢占，等待重新处理");
+                RuntimeLog.Info("MediaFinalize", $"Recording aggregate preempted id={job.RecordId}");
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _db?.UpdateMediaFinalizeJob(
+                    job.RecordId,
+                    MediaFinalizeJobState.Failed,
+                    "Queued",
+                    ex.Message);
+                RuntimeLog.Warn("MediaFinalize", $"Recording aggregate failed id={job.RecordId}: {ex.Message}");
+            }
+        }
+
         public async Task<MkvBatchConversionResult> BatchConvertMkvToMp4Async(
             IProgress<string> progress,
             CancellationToken token,
@@ -2369,8 +2546,10 @@ namespace ExpressPackingMonitoring.ViewModels
             _webServerStartupTask = RestartWebServerAsync(
                 allowAccessSetup: ShouldRepairLanAccessAtStartup(Config, AllowLanAccessSetupOnStartup));
 
-            // 启动时自动将上次断电残留的 MKV 转换为 MP4
-            _mkvRecoveryTask = Task.Run(RecoverOrphanedMkvAsync);
+            // 启动时只恢复持久化任务；仍需满足连续空闲 60 秒才会执行。
+            int recoveredFinalizeJobs = _db?.RecoverPendingMediaFinalizeJobs(DateTime.Now) ?? 0;
+            RuntimeLog.Info("MediaFinalize", $"Recovered persistent media jobs={recoveredFinalizeJobs}");
+            _mediaFinalizeWorkerTask = Task.Run(() => RunMediaFinalizeWorkerAsync(_cts.Token), _cts.Token);
         }
 
         internal static bool ShouldRepairLanAccessAtStartup(
@@ -2449,27 +2628,8 @@ namespace ExpressPackingMonitoring.ViewModels
                     await _lastFinalizeTask;
                 }
 
-                if (_postStopMuxTask != null && !_postStopMuxTask.IsCompleted)
-                {
-                    progress?.Report("正在等待当前录像合成...");
-                    await _postStopMuxTask;
-                }
-
-                if (_mkvRecoveryTask != null && !_mkvRecoveryTask.IsCompleted)
-                {
-                    progress?.Report("正在等待后台录像恢复...");
-                    await _mkvRecoveryTask;
-                }
-
-                progress?.Report("正在合成 MP4 录像...");
-                var result = await BatchConvertMkvToMp4Async(progress, CancellationToken.None);
-                RuntimeLog.Info("Shutdown", $"Save before shutdown done success={result.SuccessCount}, fail={result.FailureCount}, skip={result.SkippedCount}, deferred={result.DeferredCount}, suppressed={result.SuppressedCount}");
-
-                if (result.ShouldNotify)
-                {
-                    ShowMkvFailureToastIfNeeded(result);
-                    RuntimeLog.Warn("Shutdown", $"Save before shutdown has failed historical conversions, allowing exit. failedConversions={result.FailureCount}");
-                }
+                progress?.Report("录像已安全入队，后台处理将在下次连续空闲 60 秒后恢复");
+                RuntimeLog.Info("Shutdown", "Save before shutdown completed without forcing media finalization");
 
                 _shutdownPrepared = true;
                 prepared = true;
@@ -3332,8 +3492,6 @@ namespace ExpressPackingMonitoring.ViewModels
                         VideoFrame = null;
                         ShowToast($"提示：摄像头已休眠（空闲{Config.CameraIdleMinutes}分钟）");
                         Debug.WriteLine($"[Idle] 摄像头休眠: 空闲{idleMinutes:F1}分钟");
-                        RuntimeLog.Info("MkvRecover", "Camera idle, start pending MKV conversion");
-                        _mkvRecoveryTask = Task.Run(RecoverOrphanedMkvAsync);
                     });
                 }
             }
@@ -3504,6 +3662,27 @@ namespace ExpressPackingMonitoring.ViewModels
                 {
                     _actualCameraFps = Config.Fps > 0 ? Config.Fps : 15;
                 }
+                try
+                {
+                    VideoCapabilities[] snapshotCapabilities = _videoSource.SnapshotCapabilities;
+                    if (snapshotCapabilities.Length > 0)
+                    {
+                        VideoCapabilities bestSnapshot = snapshotCapabilities
+                            .OrderByDescending(cap => cap.FrameSize.Width * (long)cap.FrameSize.Height)
+                            .ThenByDescending(cap => cap.AverageFrameRate)
+                            .First();
+                        _videoSource.SnapshotResolution = bestSnapshot;
+                        _videoSource.ProvideSnapshots = true;
+                        _videoSource.SnapshotFrame += VideoSource_SnapshotFrame;
+                        RuntimeLog.Info(
+                            "Camera",
+                            $"Independent snapshot channel configured {bestSnapshot.FrameSize.Width}x{bestSnapshot.FrameSize.Height}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    RuntimeLog.Warn("Camera", $"Independent snapshot channel unavailable: {ex.Message}");
+                }
                 _videoSource.NewFrame += VideoSource_NewFrame; _videoSource.Start();
                 _lastFrameTime = DateTime.Now; // 防止 VideoProcessLoop 启动时误判无帧
                 _lastPreviewPublishedAt = DateTime.Now;
@@ -3527,6 +3706,7 @@ namespace ExpressPackingMonitoring.ViewModels
             {
                 RuntimeLog.Info("Camera", $"StopCamera running={source.IsRunning}");
                 try { source.NewFrame -= VideoSource_NewFrame; } catch { }
+                try { source.SnapshotFrame -= VideoSource_SnapshotFrame; } catch { }
                 try
                 {
                     if (source.IsRunning)
@@ -3560,6 +3740,7 @@ namespace ExpressPackingMonitoring.ViewModels
                 _cameraForceStopTask = null;
             }
             lock (_frameLock) { _latestFrame?.Dispose(); _latestFrame = null; }
+            lock (_snapshotFrameLock) { _latestSnapshotFrame?.Dispose(); _latestSnapshotFrame = null; }
             BeginPreviewSession(clearFrame: true);
             RuntimeLog.Info("Camera", "StopCamera completed");
             return true;
@@ -3584,6 +3765,24 @@ namespace ExpressPackingMonitoring.ViewModels
             catch (Exception ex)
             {
                 RuntimeLog.Error("Camera", "NewFrame conversion failed", ex);
+            }
+        }
+
+        private void VideoSource_SnapshotFrame(object sender, NewFrameEventArgs eventArgs)
+        {
+            try
+            {
+                Mat snapshot = BitmapToMat(eventArgs.Frame);
+                lock (_snapshotFrameLock)
+                {
+                    _latestSnapshotFrame?.Dispose();
+                    _latestSnapshotFrame = snapshot;
+                    Interlocked.Increment(ref _snapshotFrameSequence);
+                }
+            }
+            catch (Exception ex)
+            {
+                RuntimeLog.Warn("Camera", $"Snapshot frame conversion failed: {ex.Message}");
             }
         }
 
@@ -3674,13 +3873,11 @@ namespace ExpressPackingMonitoring.ViewModels
                         if (Config.EnableSmartZoom || PreviewZoomScale.HasValue)
                         {
                             double effectiveScale = PreviewZoomScale ?? Config.ZoomScale;
-                            int zoomW = (int)(currentFrame.Width / effectiveScale);
-                            int zoomH = (int)(currentFrame.Height / effectiveScale);
-                            if (zoomW <= 0 || zoomW > currentFrame.Width) zoomW = currentFrame.Width;
-                            if (zoomH <= 0 || zoomH > currentFrame.Height) zoomH = currentFrame.Height;
-
-                            var currentZoomRect = new OpenCvSharp.Rect((currentFrame.Width - zoomW) / 2, (currentFrame.Height - zoomH) / 2, zoomW, zoomH)
-                                .Intersect(new OpenCvSharp.Rect(0, 0, currentFrame.Width, currentFrame.Height));
+                            var currentZoomRect = CameraZoomRoi.Calculate(
+                                currentFrame.Width,
+                                currentFrame.Height,
+                                zoomEnabled: true,
+                                effectiveScale);
 
                             if (currentZoomRect.Width > 0 && currentZoomRect.Height > 0 && _zoomPhase == ZoomPhase.None)
                             {
@@ -4292,10 +4489,10 @@ namespace ExpressPackingMonitoring.ViewModels
                     recordStart = _recordStartTime;
 
                     _videoWriteQueue?.CompleteAdding();
-                    _writeCts?.Cancel();
                     audioFileToConvert = StopAudioRecording();
                     audioFailedForRecording = _audioFailedForCurrentRecording;
                     audioBytesWrittenForRecording = _audioBytesWritten;
+                    _writeCts?.Cancel();
                     _writeTask?.Wait(5000); // 等待写入线程关闭 stdin，让 FFmpeg 正常结束
 
                     // 如果 FFmpeg 还没退出，再等一会儿让它写完尾部
@@ -4319,7 +4516,7 @@ namespace ExpressPackingMonitoring.ViewModels
                 try { _postStopMuxTask?.Wait(5000); } catch { }
             }
 
-            // 录制中退出：更新数据库并转换 MP4
+            // 录制中退出：只安全封口并持久化任务，不在退出阶段强制转换。
             if (!string.IsNullOrEmpty(videoFileToConvert) && File.Exists(videoFileToConvert))
             {
                 try
@@ -4330,7 +4527,9 @@ namespace ExpressPackingMonitoring.ViewModels
                     if (!tooSmall && recordId > 0)
                     {
                         int durSec = Math.Max(1, (int)(DateTime.Now - recordStart).TotalSeconds);
-                        _db?.UpdateVideoRecordOnStop(recordId, DateTime.Now, durSec, fileSize, _stopReason, _currentVideoCodec, _currentVideoEncoder);
+                        DateTime endedAt = DateTime.Now;
+                        _db?.UpdateVideoRecordOnStop(recordId, endedAt, durSec, fileSize, _stopReason, _currentVideoCodec, _currentVideoEncoder);
+                        _db?.EnqueueMediaFinalize(recordId, endedAt);
                         RuntimeLog.Info("Recording", $"Exit finalized MKV, queued for startup/web conversion: {Path.GetFileName(videoFileToConvert)}");
                     }
                     else
@@ -4351,6 +4550,8 @@ namespace ExpressPackingMonitoring.ViewModels
 
             StopCamera();
             try { _videoTask?.Wait(1000); } catch { }
+            try { _mediaFinalizeWorkerTask?.Wait(1000); } catch { }
+            try { _recordingActivityGate.Dispose(); } catch { }
             _cts?.Dispose();
             lock (_videoLock)
             {

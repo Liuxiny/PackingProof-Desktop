@@ -49,7 +49,10 @@ public sealed record RecordingProofMetadata(
     string Encoder,
     string WatermarkSessionId);
 
-public sealed record RecordingProofResult(string ProofFilePath, string VideoSha256);
+public sealed record RecordingProofResult(
+    string ProofFilePath,
+    string VideoSha256,
+    string PhotoSha256 = "");
 
 public sealed record RecordingProofPayload(
     int Version,
@@ -58,7 +61,10 @@ public sealed record RecordingProofPayload(
     long VideoSizeBytes,
     RecordingProofMetadata Recording,
     string DeviceName,
-    string CreatedAtUtc);
+    string CreatedAtUtc,
+    string PhotoFileName = "",
+    string PhotoSha256 = "",
+    long PhotoSizeBytes = 0);
 
 public sealed record RecordingProofEnvelope(
     RecordingProofPayload Payload,
@@ -80,18 +86,33 @@ public sealed class RecordingIntegrityService
     public async Task<RecordingProofResult> CreateProofAsync(
         string videoFilePath,
         RecordingProofMetadata metadata,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? photoFilePath = null)
     {
         string videoHash = await ComputeSha256Async(videoFilePath, cancellationToken).ConfigureAwait(false);
         long videoSize = new FileInfo(videoFilePath).Length;
+        string photoHash = "";
+        long photoSize = 0;
+        string photoFileName = "";
+        if (!string.IsNullOrWhiteSpace(photoFilePath))
+        {
+            if (!File.Exists(photoFilePath))
+                throw new FileNotFoundException("录像原始照片不存在", photoFilePath);
+            photoHash = await ComputeSha256Async(photoFilePath, cancellationToken).ConfigureAwait(false);
+            photoSize = new FileInfo(photoFilePath).Length;
+            photoFileName = Path.GetFileName(photoFilePath);
+        }
         var payload = new RecordingProofPayload(
-            1,
+            photoFileName.Length > 0 ? 2 : 1,
             Path.GetFileName(videoFilePath),
             videoHash,
             videoSize,
             metadata,
             Environment.MachineName,
-            DateTimeOffset.UtcNow.ToString("O"));
+            DateTimeOffset.UtcNow.ToString("O"),
+            photoFileName,
+            photoHash,
+            photoSize);
 
         byte[] canonicalPayload = JsonSerializer.SerializeToUtf8Bytes(payload);
         using ECDsa signer = LoadOrCreateDeviceKey();
@@ -107,13 +128,14 @@ public sealed class RecordingIntegrityService
         byte[] document = JsonSerializer.SerializeToUtf8Bytes(envelope, JsonOptions);
         await File.WriteAllBytesAsync(temporaryPath, document, cancellationToken).ConfigureAwait(false);
         File.Move(temporaryPath, proofPath, overwrite: true);
-        return new RecordingProofResult(proofPath, videoHash);
+        return new RecordingProofResult(proofPath, videoHash, photoHash);
     }
 
     public static async Task<bool> VerifyProofAsync(
         string videoFilePath,
         string proofFilePath,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? photoFilePath = null)
     {
         RecordingProofEnvelope? envelope = JsonSerializer.Deserialize<RecordingProofEnvelope>(
             await File.ReadAllBytesAsync(proofFilePath, cancellationToken).ConfigureAwait(false));
@@ -122,6 +144,15 @@ public sealed class RecordingIntegrityService
         string actualHash = await ComputeSha256Async(videoFilePath, cancellationToken).ConfigureAwait(false);
         if (!string.Equals(actualHash, envelope.Payload.VideoSha256, StringComparison.OrdinalIgnoreCase))
             return false;
+
+        if (envelope.Payload.Version >= 2)
+        {
+            if (string.IsNullOrWhiteSpace(photoFilePath) || !File.Exists(photoFilePath))
+                return false;
+            string actualPhotoHash = await ComputeSha256Async(photoFilePath, cancellationToken).ConfigureAwait(false);
+            if (!string.Equals(actualPhotoHash, envelope.Payload.PhotoSha256, StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
 
         using ECDsa verifier = ECDsa.Create();
         verifier.ImportSubjectPublicKeyInfo(Convert.FromBase64String(envelope.PublicKey), out _);

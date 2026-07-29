@@ -126,6 +126,12 @@ namespace ExpressPackingMonitoring.ViewModels
 
         private long ApplyRetentionPolicies(long totalCurrentBytes)
         {
+            if (IsRecording || _recordingActivityGate.HasActiveOperation)
+            {
+                RuntimeLog.Info("Storage", "Retention cleanup deferred for recording or snapshot activity");
+                return 0;
+            }
+
             IReadOnlyList<VideoRecord> candidates = _db.GetRetentionCandidates();
             long releasedBytes = 0;
             int deletedRecords = 0;
@@ -211,6 +217,7 @@ namespace ExpressPackingMonitoring.ViewModels
                     .AsTask().GetAwaiter().GetResult();
                 VideoRecord record = _db.GetVideoById(candidate.Id);
                 if (record == null
+                    || _db.IsRecordingAggregateBusy(record.Id)
                     || record.ArchiveStatus != VideoArchiveStatus.Verified
                     || string.IsNullOrWhiteSpace(record.LocalFilePath)
                     || string.IsNullOrWhiteSpace(record.NetworkFilePath)
@@ -225,6 +232,11 @@ namespace ExpressPackingMonitoring.ViewModels
 
                 long released = new FileInfo(record.LocalFilePath).Length;
                 File.Delete(record.LocalFilePath);
+                if (!string.IsNullOrWhiteSpace(record.LocalPhotoPath) && File.Exists(record.LocalPhotoPath))
+                {
+                    released += new FileInfo(record.LocalPhotoPath).Length;
+                    File.Delete(record.LocalPhotoPath);
+                }
                 DeleteOwnedSidecar(record.ProofFilePath, record.LocalFilePath);
                 _db.MarkLocalCopyDeleted(record.Id, DateTime.Now, "网络已校验，本地仅保留昨天和今天");
                 return released;
@@ -247,7 +259,23 @@ namespace ExpressPackingMonitoring.ViewModels
                 string remoteHash = NetworkArchiveService
                     .ComputeSha256Async(record.NetworkFilePath, CancellationToken.None)
                     .GetAwaiter().GetResult();
-                return string.Equals(remoteHash, record.ContentSha256, StringComparison.OrdinalIgnoreCase);
+                if (!string.Equals(remoteHash, record.ContentSha256, StringComparison.OrdinalIgnoreCase))
+                    return false;
+
+                if (string.IsNullOrWhiteSpace(record.LocalPhotoPath))
+                    return true;
+                if (string.IsNullOrWhiteSpace(record.NetworkPhotoPath)
+                    || !File.Exists(record.LocalPhotoPath)
+                    || !File.Exists(record.NetworkPhotoPath))
+                    return false;
+                var localPhoto = new FileInfo(record.LocalPhotoPath);
+                var remotePhoto = new FileInfo(record.NetworkPhotoPath);
+                if (localPhoto.Length != remotePhoto.Length) return false;
+                if (string.IsNullOrWhiteSpace(record.PhotoSha256)) return true;
+                string remotePhotoHash = NetworkArchiveService
+                    .ComputeSha256Async(record.NetworkPhotoPath, CancellationToken.None)
+                    .GetAwaiter().GetResult();
+                return string.Equals(remotePhotoHash, record.PhotoSha256, StringComparison.OrdinalIgnoreCase);
             }
             catch
             {
@@ -263,7 +291,7 @@ namespace ExpressPackingMonitoring.ViewModels
                     .EnterAsync(candidate.Id, CancellationToken.None)
                     .AsTask().GetAwaiter().GetResult();
                 VideoRecord record = _db.GetVideoById(candidate.Id);
-                if (record == null || IsCurrentRecording(record)) return 0;
+                if (record == null || IsCurrentRecording(record) || _db.IsRecordingAggregateBusy(record.Id)) return 0;
 
                 bool hasPublishedNetworkFile = record.ArchiveStatus is VideoArchiveStatus.Verified or VideoArchiveStatus.LocalDeleted;
                 if (hasPublishedNetworkFile
@@ -280,12 +308,23 @@ namespace ExpressPackingMonitoring.ViewModels
                     released += new FileInfo(record.LocalFilePath).Length;
                     File.Delete(record.LocalFilePath);
                 }
+                if (!string.IsNullOrWhiteSpace(record.LocalPhotoPath) && File.Exists(record.LocalPhotoPath))
+                {
+                    released += new FileInfo(record.LocalPhotoPath).Length;
+                    File.Delete(record.LocalPhotoPath);
+                }
                 if (hasPublishedNetworkFile
                     && !string.IsNullOrWhiteSpace(record.NetworkFilePath)
                     && File.Exists(record.NetworkFilePath))
                 {
                     File.Delete(record.NetworkFilePath);
                     DeleteSidecar(Path.ChangeExtension(record.NetworkFilePath, ".proof.json"));
+                }
+                if (hasPublishedNetworkFile
+                    && !string.IsNullOrWhiteSpace(record.NetworkPhotoPath)
+                    && File.Exists(record.NetworkPhotoPath))
+                {
+                    File.Delete(record.NetworkPhotoPath);
                 }
                 DeleteOwnedSidecar(record.ProofFilePath, record.LocalFilePath);
                 _db.MarkVideoDeletedById(
@@ -369,6 +408,11 @@ namespace ExpressPackingMonitoring.ViewModels
             foreach (FileInfo file in dir.EnumerateFiles("*.*", SearchOption.AllDirectories))
             {
                 if (_videoExtensions.Contains(file.Extension, StringComparer.OrdinalIgnoreCase))
+                    yield return file;
+                else if (file.Extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase)
+                         && file.Name.EndsWith("_面单.jpg", StringComparison.OrdinalIgnoreCase))
+                    yield return file;
+                else if (file.Name.EndsWith(".proof.json", StringComparison.OrdinalIgnoreCase))
                     yield return file;
             }
         }

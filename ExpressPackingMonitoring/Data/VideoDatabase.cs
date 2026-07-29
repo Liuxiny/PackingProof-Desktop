@@ -22,6 +22,32 @@ namespace ExpressPackingMonitoring.Data
         public const string Unavailable = "Unavailable";
     }
 
+    public static class RecordingPhotoStatus
+    {
+        public const string Missing = "Missing";
+        public const string Capturing = "Capturing";
+        public const string Ready = "Ready";
+        public const string Failed = "Failed";
+        public const string Deleted = "Deleted";
+    }
+
+    public static class MediaFinalizeJobState
+    {
+        public const string Pending = "Pending";
+        public const string Running = "Running";
+        public const string Completed = "Completed";
+        public const string Failed = "Failed";
+        public const string Cancelled = "Cancelled";
+    }
+
+    public static class RecordingDeleteJobState
+    {
+        public const string Pending = "Pending";
+        public const string WaitingForNetwork = "WaitingForNetwork";
+        public const string Completed = "Completed";
+        public const string Failed = "Failed";
+    }
+
     /// <summary>
     /// 视频录制记录
     /// </summary>
@@ -55,6 +81,16 @@ namespace ExpressPackingMonitoring.Data
         public string ArchiveError { get; set; } = "";
         public DateTime? LocalCopyDeletedAt { get; set; }
         public string LocalDeleteReason { get; set; } = "";
+        public string LocalPhotoPath { get; set; } = "";
+        public string NetworkPhotoPath { get; set; } = "";
+        public DateTime? PhotoCapturedAt { get; set; }
+        public int PhotoWidth { get; set; }
+        public int PhotoHeight { get; set; }
+        public long PhotoFileSizeBytes { get; set; }
+        public string PhotoSha256 { get; set; } = "";
+        public string PhotoStatus { get; set; } = RecordingPhotoStatus.Missing;
+        public string PhotoError { get; set; } = "";
+        public string ResolvedPhotoPath => VideoFileResolver.ResolvePhoto(this);
         public string FileName => Path.GetFileName(
             !string.IsNullOrWhiteSpace(NetworkFilePath) ? NetworkFilePath :
             !string.IsNullOrWhiteSpace(LocalFilePath) ? LocalFilePath : FilePath ?? "");
@@ -66,6 +102,33 @@ namespace ExpressPackingMonitoring.Data
         public bool IsDeleted { get; set; }
         public DateTime? DeletedAt { get; set; }
         public string DeleteReason { get; set; } = ""; // 磁盘清理/手动删除
+
+    }
+
+    public sealed class MediaFinalizeJob
+    {
+        public long RecordId { get; set; }
+        public string State { get; set; } = MediaFinalizeJobState.Pending;
+        public string Stage { get; set; } = "Queued";
+        public DateTime RequestedAt { get; set; }
+        public DateTime UpdatedAt { get; set; }
+        public int AttemptCount { get; set; }
+        public string LastError { get; set; } = "";
+        public DateTime? RecordingEndTime { get; set; }
+    }
+
+    public sealed class RecordingDeleteJob
+    {
+        public long RecordId { get; set; }
+        public string State { get; set; } = RecordingDeleteJobState.Pending;
+        public bool LocalVideoDeleted { get; set; }
+        public bool NetworkVideoDeleted { get; set; }
+        public bool LocalPhotoDeleted { get; set; }
+        public bool NetworkPhotoDeleted { get; set; }
+        public bool ProofDeleted { get; set; }
+        public DateTime RequestedAt { get; set; }
+        public DateTime UpdatedAt { get; set; }
+        public string LastError { get; set; } = "";
     }
 
     /// <summary>
@@ -176,6 +239,15 @@ namespace ExpressPackingMonitoring.Data
                     ArchiveError TEXT DEFAULT '',
                     LocalCopyDeletedAt TEXT,
                     LocalDeleteReason TEXT DEFAULT '',
+                    LocalPhotoPath TEXT DEFAULT '',
+                    NetworkPhotoPath TEXT DEFAULT '',
+                    PhotoCapturedAt TEXT,
+                    PhotoWidth INTEGER NOT NULL DEFAULT 0,
+                    PhotoHeight INTEGER NOT NULL DEFAULT 0,
+                    PhotoFileSizeBytes INTEGER NOT NULL DEFAULT 0,
+                    PhotoSha256 TEXT DEFAULT '',
+                    PhotoStatus TEXT NOT NULL DEFAULT 'Missing',
+                    PhotoError TEXT DEFAULT '',
                     BackupCompletedAt TEXT,
                     FilePath TEXT NOT NULL,
                     FileSizeBytes INTEGER DEFAULT 0,
@@ -191,6 +263,31 @@ namespace ExpressPackingMonitoring.Data
                     IsDeleted INTEGER DEFAULT 0,
                     DeletedAt TEXT,
                     DeleteReason TEXT DEFAULT ''
+                );");
+
+            ExecuteNonQuery(@"
+                CREATE TABLE IF NOT EXISTS MediaFinalizeJobs (
+                    RecordId INTEGER PRIMARY KEY,
+                    State TEXT NOT NULL DEFAULT 'Pending',
+                    Stage TEXT NOT NULL DEFAULT 'Queued',
+                    RequestedAt TEXT NOT NULL,
+                    UpdatedAt TEXT NOT NULL,
+                    AttemptCount INTEGER NOT NULL DEFAULT 0,
+                    LastError TEXT DEFAULT ''
+                );");
+
+            ExecuteNonQuery(@"
+                CREATE TABLE IF NOT EXISTS RecordingDeleteJobs (
+                    RecordId INTEGER PRIMARY KEY,
+                    State TEXT NOT NULL DEFAULT 'Pending',
+                    LocalVideoDeleted INTEGER NOT NULL DEFAULT 0,
+                    NetworkVideoDeleted INTEGER NOT NULL DEFAULT 0,
+                    LocalPhotoDeleted INTEGER NOT NULL DEFAULT 0,
+                    NetworkPhotoDeleted INTEGER NOT NULL DEFAULT 0,
+                    ProofDeleted INTEGER NOT NULL DEFAULT 0,
+                    RequestedAt TEXT NOT NULL,
+                    UpdatedAt TEXT NOT NULL,
+                    LastError TEXT DEFAULT ''
                 );");
 
             ExecuteNonQuery(@"
@@ -245,6 +342,15 @@ namespace ExpressPackingMonitoring.Data
             EnsureColumnExists("VideoRecords", "ArchiveError", "TEXT DEFAULT ''");
             EnsureColumnExists("VideoRecords", "LocalCopyDeletedAt", "TEXT");
             EnsureColumnExists("VideoRecords", "LocalDeleteReason", "TEXT DEFAULT ''");
+            EnsureColumnExists("VideoRecords", "LocalPhotoPath", "TEXT DEFAULT ''");
+            EnsureColumnExists("VideoRecords", "NetworkPhotoPath", "TEXT DEFAULT ''");
+            EnsureColumnExists("VideoRecords", "PhotoCapturedAt", "TEXT");
+            EnsureColumnExists("VideoRecords", "PhotoWidth", "INTEGER NOT NULL DEFAULT 0");
+            EnsureColumnExists("VideoRecords", "PhotoHeight", "INTEGER NOT NULL DEFAULT 0");
+            EnsureColumnExists("VideoRecords", "PhotoFileSizeBytes", "INTEGER NOT NULL DEFAULT 0");
+            EnsureColumnExists("VideoRecords", "PhotoSha256", "TEXT DEFAULT ''");
+            EnsureColumnExists("VideoRecords", "PhotoStatus", "TEXT NOT NULL DEFAULT 'Missing'");
+            EnsureColumnExists("VideoRecords", "PhotoError", "TEXT DEFAULT ''");
             EnsureColumnExists("VideoRecords", "BackupCompletedAt", "TEXT");
             EnsureColumnExists("VideoRecords", "MkvFirstFailedAt", "TEXT");
             EnsureColumnExists("VideoRecords", "MkvLastAttemptAt", "TEXT");
@@ -271,6 +377,8 @@ namespace ExpressPackingMonitoring.Data
             ExecuteNonQuery("CREATE INDEX IF NOT EXISTS idx_video_content_sha256 ON VideoRecords(ContentSha256);");
             ExecuteNonQuery("CREATE INDEX IF NOT EXISTS idx_video_archive_status ON VideoRecords(ArchiveStatus, StartTime);");
             ExecuteNonQuery("CREATE INDEX IF NOT EXISTS idx_video_network_path ON VideoRecords(NetworkFilePath);");
+            ExecuteNonQuery("CREATE INDEX IF NOT EXISTS idx_media_finalize_state ON MediaFinalizeJobs(State, UpdatedAt);");
+            ExecuteNonQuery("CREATE INDEX IF NOT EXISTS idx_recording_delete_state ON RecordingDeleteJobs(State, UpdatedAt);");
             ExecuteNonQuery("CREATE UNIQUE INDEX IF NOT EXISTS idx_video_external_session ON VideoRecords(SourceDeviceId, SourceSessionId) WHERE SourceType = 'external' AND SourceDeviceId <> '' AND SourceSessionId <> '';");
             CleanupExpiredOrderInfos();
         }
@@ -287,7 +395,15 @@ namespace ExpressPackingMonitoring.Data
             DateTime startTime,
             OrderInfo orderInfo = null,
             string sourceDeviceId = "",
-            string sourceDeviceName = "")
+            string sourceDeviceName = "",
+            string localPhotoPath = "",
+            DateTime? photoCapturedAt = null,
+            int photoWidth = 0,
+            int photoHeight = 0,
+            long photoFileSizeBytes = 0,
+            string photoSha256 = "",
+            string photoStatus = RecordingPhotoStatus.Missing,
+            string photoError = "")
         {
             string orderInfoJson = SerializeOrderInfo(orderInfo);
             lock (_lock)
@@ -297,11 +413,15 @@ namespace ExpressPackingMonitoring.Data
                     INSERT INTO VideoRecords (
                         OrderId, Mode, TrackingNumber, SourceOrderId, BuyerMessage, SellerMemo, ProductInfo,
                         OrderInfoPushTime, OrderInfoJson, SourceType, SourceDeviceId, SourceDeviceName,
-                        VideoCodec, VideoEncoder, FilePath, LocalFilePath, ArchiveStatus, StartTime)
+                        VideoCodec, VideoEncoder, FilePath, LocalFilePath, ArchiveStatus, StartTime,
+                        LocalPhotoPath, PhotoCapturedAt, PhotoWidth, PhotoHeight, PhotoFileSizeBytes,
+                        PhotoSha256, PhotoStatus, PhotoError)
                     VALUES (
                         @orderId, @mode, @trackingNumber, @sourceOrderId, @buyerMessage, @sellerMemo, @productInfo,
                         @orderInfoPushTime, @orderInfoJson, 'pc', @sourceDeviceId, @sourceDeviceName,
-                        @videoCodec, @videoEncoder, @filePath, @filePath, 'LocalOnly', @startTime);
+                        @videoCodec, @videoEncoder, @filePath, @filePath, 'LocalOnly', @startTime,
+                        @localPhotoPath, @photoCapturedAt, @photoWidth, @photoHeight, @photoFileSizeBytes,
+                        @photoSha256, @photoStatus, @photoError);
                     SELECT last_insert_rowid();";
                 cmd.Parameters.AddWithValue("@orderId", orderId ?? "");
                 cmd.Parameters.AddWithValue("@mode", mode ?? "");
@@ -318,6 +438,14 @@ namespace ExpressPackingMonitoring.Data
                 cmd.Parameters.AddWithValue("@videoEncoder", videoEncoder ?? "");
                 cmd.Parameters.AddWithValue("@filePath", filePath ?? "");
                 cmd.Parameters.AddWithValue("@startTime", startTime.ToString("yyyy-MM-dd HH:mm:ss"));
+                cmd.Parameters.AddWithValue("@localPhotoPath", localPhotoPath?.Trim() ?? "");
+                cmd.Parameters.AddWithValue("@photoCapturedAt", photoCapturedAt.HasValue ? photoCapturedAt.Value.ToString("yyyy-MM-dd HH:mm:ss.fff") : DBNull.Value);
+                cmd.Parameters.AddWithValue("@photoWidth", Math.Max(0, photoWidth));
+                cmd.Parameters.AddWithValue("@photoHeight", Math.Max(0, photoHeight));
+                cmd.Parameters.AddWithValue("@photoFileSizeBytes", Math.Max(0, photoFileSizeBytes));
+                cmd.Parameters.AddWithValue("@photoSha256", photoSha256?.Trim().ToLowerInvariant() ?? "");
+                cmd.Parameters.AddWithValue("@photoStatus", string.IsNullOrWhiteSpace(photoStatus) ? RecordingPhotoStatus.Missing : photoStatus);
+                cmd.Parameters.AddWithValue("@photoError", photoError ?? "");
                 return (long)cmd.ExecuteScalar();
             }
         }
@@ -470,7 +598,9 @@ namespace ExpressPackingMonitoring.Data
                            TrackingNumber, SourceOrderId, BuyerMessage, SellerMemo, ProductInfo, OrderInfoPushTime, OrderInfoJson,
                            SourceType, SourceDeviceId, SourceDeviceName, SourceSessionId, ContentSha256,
                            LocalFilePath, NetworkFilePath, ArchiveStatus, ProofFilePath, ArchiveRetryCount,
-                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason
+                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason,
+                           LocalPhotoPath, NetworkPhotoPath, PhotoCapturedAt, PhotoWidth, PhotoHeight,
+                           PhotoFileSizeBytes, PhotoSha256, PhotoStatus, PhotoError
                     FROM VideoRecords
                     WHERE SourceType = 'external' AND SourceDeviceId = @sourceDeviceId AND SourceSessionId = @sourceSessionId
                     LIMIT 1;";
@@ -494,7 +624,9 @@ namespace ExpressPackingMonitoring.Data
                            TrackingNumber, SourceOrderId, BuyerMessage, SellerMemo, ProductInfo, OrderInfoPushTime, OrderInfoJson,
                            SourceType, SourceDeviceId, SourceDeviceName, SourceSessionId, ContentSha256,
                            LocalFilePath, NetworkFilePath, ArchiveStatus, ProofFilePath, ArchiveRetryCount,
-                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason
+                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason,
+                           LocalPhotoPath, NetworkPhotoPath, PhotoCapturedAt, PhotoWidth, PhotoHeight,
+                           PhotoFileSizeBytes, PhotoSha256, PhotoStatus, PhotoError
                     FROM VideoRecords
                     WHERE ContentSha256 = @contentSha256 AND IsDeleted = 0
                     ORDER BY Id LIMIT 1;";
@@ -700,6 +832,265 @@ namespace ExpressPackingMonitoring.Data
             }
         }
 
+        public void UpdateRecordingPhoto(
+            long recordId,
+            string localPhotoPath,
+            DateTime? capturedAt,
+            int width,
+            int height,
+            long fileSizeBytes,
+            string sha256,
+            string status,
+            string error = "")
+        {
+            lock (_lock)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.CommandText = @"
+                    UPDATE VideoRecords SET
+                        LocalPhotoPath = @localPhotoPath,
+                        PhotoCapturedAt = @capturedAt,
+                        PhotoWidth = @width,
+                        PhotoHeight = @height,
+                        PhotoFileSizeBytes = @fileSizeBytes,
+                        PhotoSha256 = @sha256,
+                        PhotoStatus = @status,
+                        PhotoError = @error
+                    WHERE Id = @id AND IsDeleted = 0;";
+                cmd.Parameters.AddWithValue("@id", recordId);
+                cmd.Parameters.AddWithValue("@localPhotoPath", localPhotoPath?.Trim() ?? "");
+                cmd.Parameters.AddWithValue("@capturedAt", capturedAt.HasValue ? capturedAt.Value.ToString("yyyy-MM-dd HH:mm:ss.fff") : DBNull.Value);
+                cmd.Parameters.AddWithValue("@width", Math.Max(0, width));
+                cmd.Parameters.AddWithValue("@height", Math.Max(0, height));
+                cmd.Parameters.AddWithValue("@fileSizeBytes", Math.Max(0, fileSizeBytes));
+                cmd.Parameters.AddWithValue("@sha256", sha256?.Trim().ToLowerInvariant() ?? "");
+                cmd.Parameters.AddWithValue("@status", string.IsNullOrWhiteSpace(status) ? RecordingPhotoStatus.Missing : status);
+                cmd.Parameters.AddWithValue("@error", error ?? "");
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        public void UpdateNetworkPhotoPath(long recordId, string networkPhotoPath)
+        {
+            lock (_lock)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.CommandText = @"
+                    UPDATE VideoRecords
+                    SET NetworkPhotoPath = @networkPhotoPath
+                    WHERE Id = @id AND IsDeleted = 0;";
+                cmd.Parameters.AddWithValue("@id", recordId);
+                cmd.Parameters.AddWithValue("@networkPhotoPath", networkPhotoPath?.Trim() ?? "");
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        public void EnqueueMediaFinalize(long recordId, DateTime requestedAt)
+        {
+            lock (_lock)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.CommandText = @"
+                    INSERT INTO MediaFinalizeJobs (RecordId, State, Stage, RequestedAt, UpdatedAt, AttemptCount, LastError)
+                    VALUES (@recordId, 'Pending', 'Queued', @now, @now, 0, '')
+                    ON CONFLICT(RecordId) DO UPDATE SET
+                        State = CASE WHEN State = 'Completed' THEN State ELSE 'Pending' END,
+                        Stage = CASE WHEN State = 'Completed' THEN Stage ELSE 'Queued' END,
+                        UpdatedAt = excluded.UpdatedAt,
+                        LastError = CASE WHEN State = 'Completed' THEN LastError ELSE '' END;";
+                cmd.Parameters.AddWithValue("@recordId", recordId);
+                cmd.Parameters.AddWithValue("@now", requestedAt.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        public int RecoverPendingMediaFinalizeJobs(DateTime now)
+        {
+            lock (_lock)
+            {
+                using var transaction = _connection.BeginTransaction();
+                using (var reset = _connection.CreateCommand())
+                {
+                    reset.Transaction = transaction;
+                    reset.CommandText = @"
+                        UPDATE MediaFinalizeJobs
+                        SET State = 'Pending', Stage = 'Queued', UpdatedAt = @now,
+                            LastError = CASE WHEN State = 'Running' THEN '程序重启，任务已恢复' ELSE LastError END
+                        WHERE State IN ('Running', 'Cancelled');";
+                    reset.Parameters.AddWithValue("@now", now.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+                    reset.ExecuteNonQuery();
+                }
+
+                int inserted;
+                using (var insert = _connection.CreateCommand())
+                {
+                    insert.Transaction = transaction;
+                    insert.CommandText = @"
+                        INSERT OR IGNORE INTO MediaFinalizeJobs
+                            (RecordId, State, Stage, RequestedAt, UpdatedAt, AttemptCount, LastError)
+                        SELECT Id, 'Pending', 'Queued', COALESCE(EndTime, StartTime), @now, 0, '启动时恢复未完成录像'
+                        FROM VideoRecords
+                        WHERE IsDeleted = 0 AND EndTime IS NOT NULL
+                          AND lower(COALESCE(NULLIF(LocalFilePath, ''), FilePath)) LIKE '%.mkv';";
+                    insert.Parameters.AddWithValue("@now", now.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+                    inserted = insert.ExecuteNonQuery();
+                }
+                transaction.Commit();
+                return inserted;
+            }
+        }
+
+        public IReadOnlyList<MediaFinalizeJob> GetPendingMediaFinalizeJobs(int limit = 100)
+        {
+            lock (_lock)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.CommandText = @"
+                    SELECT j.RecordId, j.State, j.Stage, j.RequestedAt, j.UpdatedAt,
+                           j.AttemptCount, j.LastError, v.EndTime
+                    FROM MediaFinalizeJobs j
+                    INNER JOIN VideoRecords v ON v.Id = j.RecordId
+                    WHERE v.IsDeleted = 0 AND j.State IN ('Pending', 'Failed', 'Cancelled')
+                      AND NOT EXISTS (
+                          SELECT 1 FROM RecordingDeleteJobs d
+                          WHERE d.RecordId = j.RecordId AND d.State <> 'Completed')
+                    ORDER BY COALESCE(v.EndTime, v.StartTime) DESC, j.RecordId DESC
+                    LIMIT @limit;";
+                cmd.Parameters.AddWithValue("@limit", Math.Clamp(limit, 1, 1000));
+                using var reader = cmd.ExecuteReader();
+                var result = new List<MediaFinalizeJob>();
+                while (reader.Read())
+                {
+                    result.Add(new MediaFinalizeJob
+                    {
+                        RecordId = reader.GetInt64(0),
+                        State = reader.GetString(1),
+                        Stage = reader.GetString(2),
+                        RequestedAt = DateTime.Parse(reader.GetString(3)),
+                        UpdatedAt = DateTime.Parse(reader.GetString(4)),
+                        AttemptCount = reader.GetInt32(5),
+                        LastError = reader.IsDBNull(6) ? "" : reader.GetString(6),
+                        RecordingEndTime = ReadNullableDateTime(reader, 7)
+                    });
+                }
+                return result;
+            }
+        }
+
+        public void UpdateMediaFinalizeJob(long recordId, string state, string stage, string error = "", bool incrementAttempt = false)
+        {
+            lock (_lock)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.CommandText = @"
+                    UPDATE MediaFinalizeJobs SET
+                        State = @state,
+                        Stage = @stage,
+                        UpdatedAt = @updatedAt,
+                        AttemptCount = AttemptCount + @attemptIncrement,
+                        LastError = @error
+                    WHERE RecordId = @recordId;";
+                cmd.Parameters.AddWithValue("@recordId", recordId);
+                cmd.Parameters.AddWithValue("@state", state);
+                cmd.Parameters.AddWithValue("@stage", stage);
+                cmd.Parameters.AddWithValue("@updatedAt", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+                cmd.Parameters.AddWithValue("@attemptIncrement", incrementAttempt ? 1 : 0);
+                cmd.Parameters.AddWithValue("@error", error ?? "");
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        public void UpsertRecordingDeleteJob(RecordingDeleteJob job)
+        {
+            ArgumentNullException.ThrowIfNull(job);
+            lock (_lock)
+            {
+                DateTime now = DateTime.Now;
+                if (job.RequestedAt == default)
+                    job.RequestedAt = now;
+                using var cmd = _connection.CreateCommand();
+                cmd.CommandText = @"
+                    INSERT INTO RecordingDeleteJobs (
+                        RecordId, State, LocalVideoDeleted, NetworkVideoDeleted, LocalPhotoDeleted,
+                        NetworkPhotoDeleted, ProofDeleted, RequestedAt, UpdatedAt, LastError)
+                    VALUES (@recordId, @state, @localVideo, @networkVideo, @localPhoto,
+                            @networkPhoto, @proof, @requestedAt, @updatedAt, @error)
+                    ON CONFLICT(RecordId) DO UPDATE SET
+                        State = excluded.State,
+                        LocalVideoDeleted = excluded.LocalVideoDeleted,
+                        NetworkVideoDeleted = excluded.NetworkVideoDeleted,
+                        LocalPhotoDeleted = excluded.LocalPhotoDeleted,
+                        NetworkPhotoDeleted = excluded.NetworkPhotoDeleted,
+                        ProofDeleted = excluded.ProofDeleted,
+                        UpdatedAt = excluded.UpdatedAt,
+                        LastError = excluded.LastError;";
+                cmd.Parameters.AddWithValue("@recordId", job.RecordId);
+                cmd.Parameters.AddWithValue("@state", job.State);
+                cmd.Parameters.AddWithValue("@localVideo", job.LocalVideoDeleted ? 1 : 0);
+                cmd.Parameters.AddWithValue("@networkVideo", job.NetworkVideoDeleted ? 1 : 0);
+                cmd.Parameters.AddWithValue("@localPhoto", job.LocalPhotoDeleted ? 1 : 0);
+                cmd.Parameters.AddWithValue("@networkPhoto", job.NetworkPhotoDeleted ? 1 : 0);
+                cmd.Parameters.AddWithValue("@proof", job.ProofDeleted ? 1 : 0);
+                cmd.Parameters.AddWithValue("@requestedAt", job.RequestedAt.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+                cmd.Parameters.AddWithValue("@updatedAt", now.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+                cmd.Parameters.AddWithValue("@error", job.LastError ?? "");
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        public IReadOnlyList<RecordingDeleteJob> GetPendingRecordingDeleteJobs(int limit = 100)
+        {
+            lock (_lock)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.CommandText = @"
+                    SELECT RecordId, State, LocalVideoDeleted, NetworkVideoDeleted, LocalPhotoDeleted,
+                           NetworkPhotoDeleted, ProofDeleted, RequestedAt, UpdatedAt, LastError
+                    FROM RecordingDeleteJobs
+                    WHERE State <> 'Completed'
+                    ORDER BY RequestedAt ASC, RecordId ASC
+                    LIMIT @limit;";
+                cmd.Parameters.AddWithValue("@limit", Math.Clamp(limit, 1, 1000));
+                using var reader = cmd.ExecuteReader();
+                var result = new List<RecordingDeleteJob>();
+                while (reader.Read())
+                {
+                    result.Add(new RecordingDeleteJob
+                    {
+                        RecordId = reader.GetInt64(0),
+                        State = reader.GetString(1),
+                        LocalVideoDeleted = reader.GetInt64(2) != 0,
+                        NetworkVideoDeleted = reader.GetInt64(3) != 0,
+                        LocalPhotoDeleted = reader.GetInt64(4) != 0,
+                        NetworkPhotoDeleted = reader.GetInt64(5) != 0,
+                        ProofDeleted = reader.GetInt64(6) != 0,
+                        RequestedAt = DateTime.Parse(reader.GetString(7)),
+                        UpdatedAt = DateTime.Parse(reader.GetString(8)),
+                        LastError = reader.IsDBNull(9) ? "" : reader.GetString(9)
+                    });
+                }
+                return result;
+            }
+        }
+
+        public bool IsRecordingAggregateBusy(long recordId)
+        {
+            lock (_lock)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.CommandText = @"
+                    SELECT CASE WHEN EXISTS (
+                        SELECT 1 FROM MediaFinalizeJobs
+                        WHERE RecordId = @recordId AND State IN ('Pending', 'Running', 'Failed', 'Cancelled')
+                    ) OR EXISTS (
+                        SELECT 1 FROM RecordingDeleteJobs
+                        WHERE RecordId = @recordId AND State <> 'Completed'
+                    ) THEN 1 ELSE 0 END;";
+                cmd.Parameters.AddWithValue("@recordId", recordId);
+                return Convert.ToInt32(cmd.ExecuteScalar()) != 0;
+            }
+        }
+
         public IReadOnlyList<VideoRecord> GetPendingNetworkArchives(int limit = 20)
         {
             lock (_lock)
@@ -712,7 +1103,9 @@ namespace ExpressPackingMonitoring.Data
                            TrackingNumber, SourceOrderId, BuyerMessage, SellerMemo, ProductInfo, OrderInfoPushTime, OrderInfoJson,
                            SourceType, SourceDeviceId, SourceDeviceName, SourceSessionId, ContentSha256,
                            LocalFilePath, NetworkFilePath, ArchiveStatus, ProofFilePath, ArchiveRetryCount,
-                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason
+                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason,
+                           LocalPhotoPath, NetworkPhotoPath, PhotoCapturedAt, PhotoWidth, PhotoHeight,
+                           PhotoFileSizeBytes, PhotoSha256, PhotoStatus, PhotoError
                     FROM VideoRecords
                     WHERE IsDeleted = 0
                       AND EndTime IS NOT NULL
@@ -736,7 +1129,7 @@ namespace ExpressPackingMonitoring.Data
             {
                 using var cmd = _connection.CreateCommand();
                 cmd.CommandText = @"
-                    SELECT COUNT(1), COALESCE(SUM(FileSizeBytes), 0),
+                    SELECT COUNT(1), COALESCE(SUM(FileSizeBytes + PhotoFileSizeBytes), 0),
                            COALESCE((SELECT ArchiveError FROM VideoRecords
                                      WHERE ArchiveError <> '' ORDER BY LastArchiveAttemptAt DESC LIMIT 1), '')
                     FROM VideoRecords
@@ -749,7 +1142,14 @@ namespace ExpressPackingMonitoring.Data
             }
         }
 
-        public void ConfigureNetworkArchive(long recordId, string localFilePath, string networkFilePath, string proofFilePath = "", bool ready = true)
+        public void ConfigureNetworkArchive(
+            long recordId,
+            string localFilePath,
+            string networkFilePath,
+            string proofFilePath = "",
+            bool ready = true,
+            string localPhotoPath = "",
+            string networkPhotoPath = "")
         {
             lock (_lock)
             {
@@ -760,6 +1160,8 @@ namespace ExpressPackingMonitoring.Data
                         LocalFilePath = @localFilePath,
                         NetworkFilePath = @networkFilePath,
                         ProofFilePath = @proofFilePath,
+                        LocalPhotoPath = CASE WHEN @localPhotoPath = '' THEN LocalPhotoPath ELSE @localPhotoPath END,
+                        NetworkPhotoPath = CASE WHEN @networkPhotoPath = '' THEN NetworkPhotoPath ELSE @networkPhotoPath END,
                         ArchiveStatus = @archiveStatus,
                         ArchiveError = ''
                     WHERE Id = @id AND IsDeleted = 0;";
@@ -767,6 +1169,8 @@ namespace ExpressPackingMonitoring.Data
                 cmd.Parameters.AddWithValue("@localFilePath", localFilePath ?? "");
                 cmd.Parameters.AddWithValue("@networkFilePath", networkFilePath ?? "");
                 cmd.Parameters.AddWithValue("@proofFilePath", proofFilePath ?? "");
+                cmd.Parameters.AddWithValue("@localPhotoPath", localPhotoPath?.Trim() ?? "");
+                cmd.Parameters.AddWithValue("@networkPhotoPath", networkPhotoPath?.Trim() ?? "");
                 cmd.Parameters.AddWithValue("@archiveStatus", ready ? VideoArchiveStatus.Pending : VideoArchiveStatus.LocalOnly);
                 cmd.ExecuteNonQuery();
             }
@@ -829,6 +1233,7 @@ namespace ExpressPackingMonitoring.Data
                 cmd.CommandText = @"
                     UPDATE VideoRecords SET
                         LocalFilePath = '',
+                        LocalPhotoPath = '',
                         LocalCopyDeletedAt = @deletedAt,
                         LocalDeleteReason = @reason,
                         FilePath = CASE WHEN NetworkFilePath <> '' THEN NetworkFilePath ELSE FilePath END,
@@ -1198,7 +1603,9 @@ namespace ExpressPackingMonitoring.Data
                            TrackingNumber, SourceOrderId, BuyerMessage, SellerMemo, ProductInfo, OrderInfoPushTime, OrderInfoJson,
                            SourceType, SourceDeviceId, SourceDeviceName, SourceSessionId, ContentSha256,
                            LocalFilePath, NetworkFilePath, ArchiveStatus, ProofFilePath, ArchiveRetryCount,
-                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason
+                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason,
+                           LocalPhotoPath, NetworkPhotoPath, PhotoCapturedAt, PhotoWidth, PhotoHeight,
+                           PhotoFileSizeBytes, PhotoSha256, PhotoStatus, PhotoError
                     FROM VideoRecords WHERE Id = @id AND IsDeleted = 0;";
                 cmd.Parameters.AddWithValue("@id", id);
                 using var reader = cmd.ExecuteReader();
@@ -1223,7 +1630,9 @@ namespace ExpressPackingMonitoring.Data
                            TrackingNumber, SourceOrderId, BuyerMessage, SellerMemo, ProductInfo, OrderInfoPushTime, OrderInfoJson,
                            SourceType, SourceDeviceId, SourceDeviceName, SourceSessionId, ContentSha256,
                            LocalFilePath, NetworkFilePath, ArchiveStatus, ProofFilePath, ArchiveRetryCount,
-                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason
+                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason,
+                           LocalPhotoPath, NetworkPhotoPath, PhotoCapturedAt, PhotoWidth, PhotoHeight,
+                           PhotoFileSizeBytes, PhotoSha256, PhotoStatus, PhotoError
                     FROM VideoRecords 
                     WHERE 1 = 1";
 
@@ -1298,7 +1707,16 @@ namespace ExpressPackingMonitoring.Data
                 ArchiveCompletedAt = ReadNullableDateTime(reader, 32),
                 ArchiveError = reader.IsDBNull(33) ? "" : reader.GetString(33),
                 LocalCopyDeletedAt = ReadNullableDateTime(reader, 34),
-                LocalDeleteReason = reader.IsDBNull(35) ? "" : reader.GetString(35)
+                LocalDeleteReason = reader.IsDBNull(35) ? "" : reader.GetString(35),
+                LocalPhotoPath = reader.IsDBNull(36) ? "" : reader.GetString(36),
+                NetworkPhotoPath = reader.IsDBNull(37) ? "" : reader.GetString(37),
+                PhotoCapturedAt = ReadNullableDateTime(reader, 38),
+                PhotoWidth = reader.IsDBNull(39) ? 0 : reader.GetInt32(39),
+                PhotoHeight = reader.IsDBNull(40) ? 0 : reader.GetInt32(40),
+                PhotoFileSizeBytes = reader.IsDBNull(41) ? 0 : reader.GetInt64(41),
+                PhotoSha256 = reader.IsDBNull(42) ? "" : reader.GetString(42),
+                PhotoStatus = reader.IsDBNull(43) ? RecordingPhotoStatus.Missing : reader.GetString(43),
+                PhotoError = reader.IsDBNull(44) ? "" : reader.GetString(44)
             };
             string resolvedPath = VideoFileResolver.Resolve(record);
             if (!string.IsNullOrWhiteSpace(resolvedPath))
@@ -1425,7 +1843,9 @@ namespace ExpressPackingMonitoring.Data
                            TrackingNumber, SourceOrderId, BuyerMessage, SellerMemo, ProductInfo, OrderInfoPushTime, OrderInfoJson,
                            SourceType, SourceDeviceId, SourceDeviceName, SourceSessionId, ContentSha256,
                            LocalFilePath, NetworkFilePath, ArchiveStatus, ProofFilePath, ArchiveRetryCount,
-                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason "
+                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason,
+                           LocalPhotoPath, NetworkPhotoPath, PhotoCapturedAt, PhotoWidth, PhotoHeight,
+                           PhotoFileSizeBytes, PhotoSha256, PhotoStatus, PhotoError "
                     + whereSql + @"
                     ORDER BY StartTime DESC, Id DESC
                     LIMIT @limit OFFSET @offset;";
@@ -1541,7 +1961,9 @@ namespace ExpressPackingMonitoring.Data
                            TrackingNumber, SourceOrderId, BuyerMessage, SellerMemo, ProductInfo, OrderInfoPushTime, OrderInfoJson,
                            SourceType, SourceDeviceId, SourceDeviceName, SourceSessionId, ContentSha256,
                            LocalFilePath, NetworkFilePath, ArchiveStatus, ProofFilePath, ArchiveRetryCount,
-                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason
+                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason,
+                           LocalPhotoPath, NetworkPhotoPath, PhotoCapturedAt, PhotoWidth, PhotoHeight,
+                           PhotoFileSizeBytes, PhotoSha256, PhotoStatus, PhotoError
                     FROM VideoRecords
                     WHERE Id IN (" + string.Join(",", parameters) + ");";
                 var result = new Dictionary<long, VideoRecord>();
@@ -1586,7 +2008,9 @@ namespace ExpressPackingMonitoring.Data
                            TrackingNumber, SourceOrderId, BuyerMessage, SellerMemo, ProductInfo, OrderInfoPushTime, OrderInfoJson,
                            SourceType, SourceDeviceId, SourceDeviceName, SourceSessionId, ContentSha256,
                            LocalFilePath, NetworkFilePath, ArchiveStatus, ProofFilePath, ArchiveRetryCount,
-                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason
+                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason,
+                           LocalPhotoPath, NetworkPhotoPath, PhotoCapturedAt, PhotoWidth, PhotoHeight,
+                           PhotoFileSizeBytes, PhotoSha256, PhotoStatus, PhotoError
                     FROM VideoRecords " + whereSql + @"
                     ORDER BY StartTime DESC, Id DESC
                     LIMIT @limit;";
@@ -1629,7 +2053,7 @@ namespace ExpressPackingMonitoring.Data
                         SUM(CASE WHEN Id = (
                             SELECT MIN(v2.Id) FROM VideoRecords v2
                             WHERE v2.FilePath = VideoRecords.FilePath AND v2.IsDeleted = 0
-                        ) THEN FileSizeBytes ELSE 0 END) AS TotalBytes
+                        ) THEN FileSizeBytes ELSE 0 END) + SUM(PhotoFileSizeBytes) AS TotalBytes
                     FROM VideoRecords
                     WHERE StartTime >= @start AND StartTime <= @end
                       AND IsDeleted = 0
@@ -1680,7 +2104,8 @@ namespace ExpressPackingMonitoring.Data
                         {dateSelector} AS GroupDate,
                         COUNT(*) AS TotalPieces,
                         SUM(v.DurationSeconds) AS TotalDurationSec,
-                        SUM(CASE WHEN v.Id = c.CanonicalId THEN v.FileSizeBytes ELSE 0 END) AS TotalBytes
+                        SUM(CASE WHEN v.Id = c.CanonicalId THEN v.FileSizeBytes ELSE 0 END)
+                            + SUM(v.PhotoFileSizeBytes) AS TotalBytes
                     FROM VideoRecords v
                     LEFT JOIN CanonicalFiles c ON c.FilePath = v.FilePath
                     WHERE v.StartTime >= @start AND v.StartTime <= @end
@@ -1717,9 +2142,9 @@ namespace ExpressPackingMonitoring.Data
             {
                 using var cmd = _connection.CreateCommand();
                 cmd.CommandText = @"
-                    SELECT COALESCE(SUM(FileSizeBytes), 0)
+                    SELECT COALESCE(SUM(FileSizeBytes), 0) + COALESCE(SUM(PhotoFileSizeBytes), 0)
                     FROM (
-                        SELECT MAX(FileSizeBytes) AS FileSizeBytes
+                        SELECT MAX(FileSizeBytes) AS FileSizeBytes, SUM(PhotoFileSizeBytes) AS PhotoFileSizeBytes
                         FROM VideoRecords
                         WHERE IsDeleted = 0
                         GROUP BY FilePath
@@ -1738,9 +2163,9 @@ namespace ExpressPackingMonitoring.Data
                 using var cmd = _connection.CreateCommand();
                 cmd.CommandText = @"
                     SELECT
-                        (SELECT COALESCE(SUM(FileSizeBytes), 0)
+                        (SELECT COALESCE(SUM(FileSizeBytes), 0) + COALESCE(SUM(PhotoFileSizeBytes), 0)
                          FROM (
-                             SELECT MAX(FileSizeBytes) AS FileSizeBytes
+                             SELECT MAX(FileSizeBytes) AS FileSizeBytes, SUM(PhotoFileSizeBytes) AS PhotoFileSizeBytes
                              FROM VideoRecords
                              WHERE IsDeleted = 0 AND DurationSeconds > 0 AND EndTime IS NOT NULL
                              GROUP BY FilePath
@@ -1976,7 +2401,9 @@ namespace ExpressPackingMonitoring.Data
                            TrackingNumber, SourceOrderId, BuyerMessage, SellerMemo, ProductInfo, OrderInfoPushTime, OrderInfoJson,
                            SourceType, SourceDeviceId, SourceDeviceName, SourceSessionId, ContentSha256,
                            LocalFilePath, NetworkFilePath, ArchiveStatus, ProofFilePath, ArchiveRetryCount,
-                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason
+                           LastArchiveAttemptAt, ArchiveCompletedAt, ArchiveError, LocalCopyDeletedAt, LocalDeleteReason,
+                           LocalPhotoPath, NetworkPhotoPath, PhotoCapturedAt, PhotoWidth, PhotoHeight,
+                           PhotoFileSizeBytes, PhotoSha256, PhotoStatus, PhotoError
                     FROM VideoRecords
                     WHERE IsDeleted = 0 AND EndTime IS NOT NULL
                     ORDER BY StartTime ASC, Id ASC

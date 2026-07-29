@@ -15,12 +15,26 @@ internal enum CameraBarcodeRecognitionState
     Confirmed
 }
 
-internal sealed record CameraBarcodeRecognitionStatus(CameraBarcodeRecognitionState State, string Code = "");
+internal sealed record CameraBarcodeDetection(
+    string Code,
+    double CenterX,
+    double CenterY,
+    double Scale,
+    double AngleDegrees,
+    double Sharpness,
+    double Exposure);
+
+internal sealed record CameraBarcodeRecognitionStatus(
+    CameraBarcodeRecognitionState State,
+    string Code = "",
+    string Feedback = "",
+    CameraBarcodeDetection? Detection = null);
 
 internal sealed record CameraBarcodeObservation(
     string CandidateCode = "",
     string ConfirmedCode = "",
-    bool KeepDecoding = false);
+    bool KeepDecoding = false,
+    string FailureReason = "");
 
 internal enum BarcodeRecordingDecisionAction
 {
@@ -237,6 +251,37 @@ internal sealed class CameraBarcodeStabilityTracker
     private TimeSpan _candidateConfirmationWindow;
     private int _candidateRequiredHits;
     private int _candidateHits;
+    private CameraBarcodeDetection? _candidateDetection;
+
+    public CameraBarcodeObservation ObserveDetection(
+        CameraBarcodeDetection? detection,
+        DateTimeOffset now,
+        TimeSpan intermittentConfirmationWindow = default,
+        TimeSpan rearmDelay = default)
+    {
+        if (detection == null)
+            return Observe((string?)null, now, intermittentConfirmationWindow, rearmDelay);
+
+        string code = detection.Code.Trim().ToUpperInvariant();
+        if (string.Equals(_candidateCode, code, StringComparison.Ordinal)
+            && _candidateDetection != null
+            && !IsGeometryStable(_candidateDetection, detection, out string reason))
+        {
+            _candidateCode = code;
+            _candidateFirstSeen = now;
+            _candidateConfirmationWindow = intermittentConfirmationWindow > TimeSpan.Zero
+                ? intermittentConfirmationWindow
+                : ConfirmationWindow;
+            _candidateRequiredHits = intermittentConfirmationWindow > TimeSpan.Zero ? 3 : 2;
+            _candidateHits = 1;
+            _candidateDetection = detection;
+            return new CameraBarcodeObservation(code, KeepDecoding: true, FailureReason: reason);
+        }
+
+        CameraBarcodeObservation observation = Observe(code, now, intermittentConfirmationWindow, rearmDelay);
+        _candidateDetection = observation.ConfirmedCode.Length > 0 ? null : detection;
+        return observation;
+    }
 
     public CameraBarcodeObservation Observe(
         string? code,
@@ -362,6 +407,60 @@ internal sealed class CameraBarcodeStabilityTracker
         _candidateConfirmationWindow = TimeSpan.Zero;
         _candidateRequiredHits = 0;
         _candidateHits = 0;
+        _candidateDetection = null;
+    }
+
+    private static bool IsGeometryStable(
+        CameraBarcodeDetection previous,
+        CameraBarcodeDetection current,
+        out string reason)
+    {
+        double dx = current.CenterX - previous.CenterX;
+        double dy = current.CenterY - previous.CenterY;
+        if (Math.Sqrt(dx * dx + dy * dy) > 0.12)
+        {
+            reason = "条码位置仍在移动";
+            return false;
+        }
+        if (Math.Abs(current.Scale - previous.Scale) > 0.2)
+        {
+            reason = "条码距离仍在变化";
+            return false;
+        }
+        if (Math.Abs(current.AngleDegrees - previous.AngleDegrees) > 25)
+        {
+            reason = "条码角度仍在变化";
+            return false;
+        }
+        if (Math.Abs(current.Exposure - previous.Exposure) > 45)
+        {
+            reason = "画面曝光仍在变化";
+            return false;
+        }
+        if (current.Sharpness < 8)
+        {
+            reason = "条码画面不够清晰";
+            return false;
+        }
+
+        reason = "";
+        return true;
+    }
+}
+
+internal static class CameraZoomRoi
+{
+    public static Rect Calculate(int frameWidth, int frameHeight, bool zoomEnabled, double zoomScale)
+    {
+        int width = Math.Max(1, frameWidth);
+        int height = Math.Max(1, frameHeight);
+        if (!zoomEnabled || !double.IsFinite(zoomScale) || zoomScale <= 1.0)
+            return new Rect(0, 0, width, height);
+
+        double scale = Math.Clamp(zoomScale, 1.0, 10.0);
+        int cropWidth = Math.Clamp((int)Math.Round(width / scale), 1, width);
+        int cropHeight = Math.Clamp((int)Math.Round(height / scale), 1, height);
+        return new Rect((width - cropWidth) / 2, (height - cropHeight) / 2, cropWidth, cropHeight);
     }
 }
 
@@ -392,15 +491,18 @@ internal sealed class CameraBarcodeFrameDecoder : IDisposable
     private readonly DecodeWorkspace _fullFrameWorkspace = new();
     private bool _disposed;
 
+    public CameraBarcodeDetection? LastDetection { get; private set; }
+
     internal int PixelBufferAllocationCount =>
         _guideWorkspace.Buffers.AllocationCount + _fullFrameWorkspace.Buffers.AllocationCount;
 
-    public string? DecodeGuideRegion(Mat frame)
+    public string? DecodeGuideRegion(Mat frame, Rect? recognitionRoi = null)
     {
         if (frame == null || frame.IsDisposed || frame.Empty())
             return null;
 
-        Rect guide = GetGuideRect(frame.Width, frame.Height);
+        Rect guide = recognitionRoi ?? GetGuideRect(frame.Width, frame.Height);
+        guide = guide.Intersect(new Rect(0, 0, frame.Width, frame.Height));
         if (guide.Width <= 0 || guide.Height <= 0)
             return null;
 
@@ -425,6 +527,8 @@ internal sealed class CameraBarcodeFrameDecoder : IDisposable
         if (_disposed)
             return null;
 
+        LastDetection = null;
+
         switch (frame.Channels())
         {
             case 1:
@@ -440,7 +544,93 @@ internal sealed class CameraBarcodeFrameDecoder : IDisposable
                 return null;
         }
 
-        Mat source = PrepareDecodeSize(workspace.Gray, workspace.Scaled);
+        Result? result = null;
+        Rect detectedRegion = new(0, 0, workspace.Gray.Width, workspace.Gray.Height);
+        double sharpness = 0;
+        double exposure = 0;
+        long pixels = workspace.Gray.Width * (long)workspace.Gray.Height;
+        if (pixels <= MaxDecodePixels)
+        {
+            result = DecodeVariants(workspace.Gray, workspace);
+            if (result != null)
+                (sharpness, exposure) = MeasureImageQuality(workspace.Gray, workspace);
+        }
+        else
+        {
+            foreach (Rect candidate in LocateBarcodeCandidates(workspace.Gray, workspace))
+            {
+                using Mat candidateImage = new(workspace.Gray, candidate);
+                result = DecodeVariants(candidateImage, workspace);
+                if (result != null)
+                {
+                    detectedRegion = candidate;
+                    (sharpness, exposure) = MeasureImageQuality(candidateImage, workspace);
+                    break;
+                }
+            }
+        }
+
+        if (result == null || !AllowedFormats.Contains(result.BarcodeFormat))
+            return null;
+
+        string normalized = (result.Text ?? "").Trim().ToUpperInvariant();
+        if (normalized.Length > 0)
+        {
+            double angle = 0;
+            if (result.ResultPoints is { Length: >= 2 } points)
+            {
+                angle = Math.Atan2(
+                    points[1].Y - points[0].Y,
+                    points[1].X - points[0].X) * 180 / Math.PI;
+            }
+            LastDetection = new CameraBarcodeDetection(
+                normalized,
+                (detectedRegion.X + detectedRegion.Width / 2d) / workspace.Gray.Width,
+                (detectedRegion.Y + detectedRegion.Height / 2d) / workspace.Gray.Height,
+                Math.Sqrt(detectedRegion.Width * (double)detectedRegion.Height /
+                    (workspace.Gray.Width * (double)workspace.Gray.Height)),
+                angle,
+                sharpness,
+                exposure);
+        }
+        return normalized.Length == 0 ? null : normalized;
+    }
+
+    private static (double Sharpness, double Exposure) MeasureImageQuality(Mat gray, DecodeWorkspace workspace)
+    {
+        Cv2.Laplacian(gray, workspace.QualityLaplacian, MatType.CV_64F);
+        Cv2.MeanStdDev(workspace.QualityLaplacian, out _, out Scalar deviation);
+        return (deviation.Val0 * deviation.Val0, Cv2.Mean(gray).Val0);
+    }
+
+    private Result? DecodeVariants(Mat gray, DecodeWorkspace workspace)
+    {
+        Result? result = DecodeSingle(gray, workspace);
+        if (result != null) return result;
+
+        using (CLAHE clahe = Cv2.CreateCLAHE(2.0, new OpenCvSharp.Size(8, 8)))
+            clahe.Apply(gray, workspace.Contrast);
+        result = DecodeSingle(workspace.Contrast, workspace);
+        if (result != null) return result;
+
+        Cv2.GaussianBlur(workspace.Contrast, workspace.Blur, new OpenCvSharp.Size(0, 0), 1.2);
+        Cv2.AddWeighted(workspace.Contrast, 1.7, workspace.Blur, -0.7, 0, workspace.Sharpened);
+        result = DecodeSingle(workspace.Sharpened, workspace);
+        if (result != null) return result;
+
+        Cv2.AdaptiveThreshold(
+            workspace.Sharpened,
+            workspace.Binary,
+            255,
+            AdaptiveThresholdTypes.GaussianC,
+            ThresholdTypes.Binary,
+            31,
+            7);
+        return DecodeSingle(workspace.Binary, workspace);
+    }
+
+    private Result? DecodeSingle(Mat source, DecodeWorkspace workspace)
+    {
         if (!source.IsContinuous())
         {
             source.CopyTo(workspace.Continuous);
@@ -451,9 +641,7 @@ internal sealed class CameraBarcodeFrameDecoder : IDisposable
         DecodeBuffers buffers = workspace.Buffers;
         buffers.EnsureSize(length);
         Marshal.Copy(source.Data, buffers.Pixels, 0, length);
-
-        Result? result = null;
-        for (int orientation = 0; orientation < 4 && result == null; orientation++)
+        for (int orientation = 0; orientation < 4; orientation++)
         {
             var luminance = new ReusableGrayLuminanceSource(
                 buffers.Pixels,
@@ -461,27 +649,65 @@ internal sealed class CameraBarcodeFrameDecoder : IDisposable
                 source.Width,
                 source.Height,
                 orientation);
-            result = _reader.Decode(luminance);
+            Result? result = _reader.Decode(luminance);
+            if (result != null)
+                return result;
         }
-        if (result == null || !AllowedFormats.Contains(result.BarcodeFormat))
-            return null;
-
-        string normalized = (result.Text ?? "").Trim().ToUpperInvariant();
-        return normalized.Length == 0 ? null : normalized;
+        return null;
     }
 
-    private Mat PrepareDecodeSize(Mat gray, Mat scaled)
+    private static IReadOnlyList<Rect> LocateBarcodeCandidates(Mat gray, DecodeWorkspace workspace)
     {
-        double dimensionScale = (double)MaxDecodeDimension / Math.Max(gray.Width, gray.Height);
-        double pixelScale = Math.Sqrt((double)MaxDecodePixels / (gray.Width * (double)gray.Height));
-        double scale = Math.Min(1, Math.Min(dimensionScale, pixelScale));
-        if (scale >= 0.999)
-            return gray;
+        double scale = Math.Min(1.0, 960.0 / Math.Max(gray.Width, gray.Height));
+        int proxyWidth = Math.Max(1, (int)Math.Round(gray.Width * scale));
+        int proxyHeight = Math.Max(1, (int)Math.Round(gray.Height * scale));
+        Cv2.Resize(gray, workspace.Locator, new OpenCvSharp.Size(proxyWidth, proxyHeight), interpolation: InterpolationFlags.Area);
+        Cv2.Sobel(workspace.Locator, workspace.GradientX, MatType.CV_16S, 1, 0, 3);
+        Cv2.Sobel(workspace.Locator, workspace.GradientY, MatType.CV_16S, 0, 1, 3);
+        Cv2.ConvertScaleAbs(workspace.GradientX, workspace.AbsGradientX);
+        Cv2.ConvertScaleAbs(workspace.GradientY, workspace.AbsGradientY);
+        Cv2.AddWeighted(workspace.AbsGradientX, 1, workspace.AbsGradientY, -0.5, 0, workspace.BarcodeMask);
+        Cv2.GaussianBlur(workspace.BarcodeMask, workspace.BarcodeMask, new OpenCvSharp.Size(9, 9), 0);
+        Cv2.Threshold(workspace.BarcodeMask, workspace.BarcodeMask, 0, 255, ThresholdTypes.Binary | ThresholdTypes.Otsu);
+        using (Mat kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new OpenCvSharp.Size(21, 7)))
+            Cv2.MorphologyEx(workspace.BarcodeMask, workspace.BarcodeMask, MorphTypes.Close, kernel, iterations: 2);
 
-        int width = Math.Max(1, (int)Math.Round(gray.Width * scale));
-        int height = Math.Max(1, (int)Math.Round(gray.Height * scale));
-        Cv2.Resize(gray, scaled, new OpenCvSharp.Size(width, height), interpolation: InterpolationFlags.Area);
-        return scaled;
+        Cv2.FindContours(workspace.BarcodeMask, out Point[][] contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+        var candidates = new List<(Rect Rect, double Score)>();
+        double minimumArea = proxyWidth * proxyHeight * 0.001;
+        foreach (Point[] contour in contours)
+        {
+            Rect proxyRect = Cv2.BoundingRect(contour);
+            double area = proxyRect.Width * (double)proxyRect.Height;
+            double aspect = proxyRect.Width / (double)Math.Max(1, proxyRect.Height);
+            if (area < minimumArea || (aspect > 0.75 && aspect < 1.35))
+                continue;
+
+            int x = Math.Max(0, (int)Math.Floor(proxyRect.X / scale) - 24);
+            int y = Math.Max(0, (int)Math.Floor(proxyRect.Y / scale) - 24);
+            int right = Math.Min(gray.Width, (int)Math.Ceiling(proxyRect.Right / scale) + 24);
+            int bottom = Math.Min(gray.Height, (int)Math.Ceiling(proxyRect.Bottom / scale) + 24);
+            if (right > x && bottom > y)
+                candidates.Add((new Rect(x, y, right - x, bottom - y), area * Math.Max(aspect, 1 / aspect)));
+        }
+
+        if (candidates.Count == 0)
+        {
+            int tileWidth = Math.Min(gray.Width, MaxDecodeDimension);
+            int tileHeight = Math.Min(gray.Height, MaxDecodeDimension);
+            int[] xs = [0, Math.Max(0, (gray.Width - tileWidth) / 2), Math.Max(0, gray.Width - tileWidth)];
+            int[] ys = [0, Math.Max(0, (gray.Height - tileHeight) / 2), Math.Max(0, gray.Height - tileHeight)];
+            return xs.SelectMany(x => ys.Select(y => new Rect(x, y, tileWidth, tileHeight)))
+                .Distinct()
+                .Take(6)
+                .ToArray();
+        }
+
+        return candidates
+            .OrderByDescending(candidate => candidate.Score)
+            .Select(candidate => candidate.Rect)
+            .Take(6)
+            .ToArray();
     }
 
     private sealed class DecodeWorkspace : IDisposable
@@ -489,6 +715,17 @@ internal sealed class CameraBarcodeFrameDecoder : IDisposable
         public Mat Gray { get; } = new();
         public Mat Scaled { get; } = new();
         public Mat Continuous { get; } = new();
+        public Mat Contrast { get; } = new();
+        public Mat Blur { get; } = new();
+        public Mat Sharpened { get; } = new();
+        public Mat Binary { get; } = new();
+        public Mat Locator { get; } = new();
+        public Mat GradientX { get; } = new();
+        public Mat GradientY { get; } = new();
+        public Mat AbsGradientX { get; } = new();
+        public Mat AbsGradientY { get; } = new();
+        public Mat BarcodeMask { get; } = new();
+        public Mat QualityLaplacian { get; } = new();
         public DecodeBuffers Buffers { get; } = new();
 
         public void Dispose()
@@ -496,6 +733,17 @@ internal sealed class CameraBarcodeFrameDecoder : IDisposable
             Gray.Dispose();
             Scaled.Dispose();
             Continuous.Dispose();
+            Contrast.Dispose();
+            Blur.Dispose();
+            Sharpened.Dispose();
+            Binary.Dispose();
+            Locator.Dispose();
+            GradientX.Dispose();
+            GradientY.Dispose();
+            AbsGradientX.Dispose();
+            AbsGradientY.Dispose();
+            BarcodeMask.Dispose();
+            QualityLaplacian.Dispose();
         }
     }
 
@@ -507,7 +755,7 @@ internal sealed class CameraBarcodeFrameDecoder : IDisposable
 
         public void EnsureSize(int length)
         {
-            if (Pixels.Length == length && OrientationScratch.Length == length)
+            if (Pixels.Length >= length && OrientationScratch.Length >= length)
                 return;
 
             Pixels = GC.AllocateUninitializedArray<byte>(length);
@@ -705,6 +953,7 @@ internal sealed class CameraBarcodeRecognitionService : IDisposable
     private readonly Task _workerTask;
     private Mat? _pendingFrame;
     private bool _pendingAllowFullFrame;
+    private Rect? _pendingRecognitionRoi;
     private int _pendingGeneration;
     private DateTimeOffset _lastAcceptedAt;
     private DateTimeOffset _lastFullFrameAttemptAt;
@@ -732,7 +981,7 @@ internal sealed class CameraBarcodeRecognitionService : IDisposable
         _workerTask = Task.Run(ProcessLoopAsync);
     }
 
-    public bool TrySubmitFrame(Mat frame, bool allowFullFrame)
+    public bool TrySubmitFrame(Mat frame, bool allowFullFrame, Rect? recognitionRoi = null)
     {
         if (_disposed || frame == null || frame.IsDisposed || frame.Empty())
             return false;
@@ -755,6 +1004,7 @@ internal sealed class CameraBarcodeRecognitionService : IDisposable
             dropped = _pendingFrame;
             _pendingFrame = replacement;
             _pendingAllowFullFrame = allowFullFrame;
+            _pendingRecognitionRoi = recognitionRoi;
             _pendingGeneration = _generation;
             if (dropped != null)
                 Interlocked.Increment(ref _droppedFrames);
@@ -782,6 +1032,7 @@ internal sealed class CameraBarcodeRecognitionService : IDisposable
             Interlocked.Increment(ref _generation);
             pending = _pendingFrame;
             _pendingFrame = null;
+            _pendingRecognitionRoi = null;
             _lastAcceptedAt = default;
             Volatile.Write(ref _forceDecodeUntilUtcTicks, 0);
             _motionGate.Reset();
@@ -802,11 +1053,13 @@ internal sealed class CameraBarcodeRecognitionService : IDisposable
 
                 Mat? frame;
                 bool allowFullFrame;
+                Rect? recognitionRoi;
                 int generation;
                 lock (_pendingLock)
                 {
                     frame = _pendingFrame;
                     allowFullFrame = _pendingAllowFullFrame;
+                    recognitionRoi = _pendingRecognitionRoi;
                     generation = _pendingGeneration;
                     _pendingFrame = null;
                 }
@@ -814,7 +1067,7 @@ internal sealed class CameraBarcodeRecognitionService : IDisposable
                     continue;
 
                 using (frame)
-                    ProcessFrame(frame, allowFullFrame, generation);
+                    ProcessFrame(frame, allowFullFrame, recognitionRoi, generation);
             }
         }
         catch (OperationCanceledException) { }
@@ -824,13 +1077,14 @@ internal sealed class CameraBarcodeRecognitionService : IDisposable
         }
     }
 
-    private void ProcessFrame(Mat frame, bool allowFullFrame, int generation)
+    private void ProcessFrame(Mat frame, bool allowFullFrame, Rect? recognitionRoi, int generation)
     {
         var stopwatch = Stopwatch.StartNew();
         string? code = null;
         try
         {
-            code = _decoder.DecodeGuideRegion(frame);
+            code = _decoder.DecodeGuideRegion(frame, recognitionRoi);
+            CameraBarcodeDetection? detection = _decoder.LastDetection;
             DateTimeOffset now = DateTimeOffset.UtcNow;
             if (code == null
                 && allowFullFrame
@@ -839,10 +1093,14 @@ internal sealed class CameraBarcodeRecognitionService : IDisposable
             {
                 _lastFullFrameAttemptAt = now;
                 code = _decoder.DecodeFullFrame(frame);
+                detection = _decoder.LastDetection;
             }
 
             if (code != null && !IsValidCandidate(code))
+            {
                 code = null;
+                detection = null;
+            }
 
             if (generation != Volatile.Read(ref _generation) || _disposed)
                 return;
@@ -853,7 +1111,7 @@ internal sealed class CameraBarcodeRecognitionService : IDisposable
                 : _intermittentConfirmationWindowProvider?.Invoke(code) ?? TimeSpan.Zero;
             TimeSpan rearmDelay = _rearmDelayProvider?.Invoke() ?? TimeSpan.Zero;
             lock (_trackerLock)
-                observation = _stabilityTracker.Observe(code, now, intermittentConfirmationWindow, rearmDelay);
+                observation = _stabilityTracker.ObserveDetection(detection, now, intermittentConfirmationWindow, rearmDelay);
 
             Volatile.Write(
                 ref _forceDecodeUntilUtcTicks,
@@ -863,16 +1121,28 @@ internal sealed class CameraBarcodeRecognitionService : IDisposable
             {
                 long dropped = Interlocked.Read(ref _droppedFrames);
                 RuntimeLog.Info("CameraBarcode", $"Confirmed {observation.ConfirmedCode}, decode={stopwatch.ElapsedMilliseconds}ms, dropped={dropped}");
-                StatusChanged?.Invoke(new CameraBarcodeRecognitionStatus(CameraBarcodeRecognitionState.Confirmed, observation.ConfirmedCode));
+                StatusChanged?.Invoke(new CameraBarcodeRecognitionStatus(
+                    CameraBarcodeRecognitionState.Confirmed,
+                    observation.ConfirmedCode,
+                    "识别已确认",
+                    detection));
                 BarcodeConfirmed?.Invoke(observation.ConfirmedCode);
             }
             else if (observation.CandidateCode.Length > 0)
             {
-                StatusChanged?.Invoke(new CameraBarcodeRecognitionStatus(CameraBarcodeRecognitionState.Candidate, observation.CandidateCode));
+                StatusChanged?.Invoke(new CameraBarcodeRecognitionStatus(
+                    CameraBarcodeRecognitionState.Candidate,
+                    observation.CandidateCode,
+                    string.IsNullOrWhiteSpace(observation.FailureReason)
+                        ? "已找到条码，请保持稳定"
+                        : observation.FailureReason,
+                    detection));
             }
             else
             {
-                StatusChanged?.Invoke(new CameraBarcodeRecognitionStatus(CameraBarcodeRecognitionState.Idle));
+                StatusChanged?.Invoke(new CameraBarcodeRecognitionStatus(
+                    CameraBarcodeRecognitionState.Idle,
+                    Feedback: "未找到有效快递条码"));
             }
         }
         catch (Exception ex)
@@ -914,6 +1184,7 @@ internal sealed class CameraBarcodeRecognitionService : IDisposable
         {
             pending = _pendingFrame;
             _pendingFrame = null;
+            _pendingRecognitionRoi = null;
         }
         pending?.Dispose();
         bool completed = false;

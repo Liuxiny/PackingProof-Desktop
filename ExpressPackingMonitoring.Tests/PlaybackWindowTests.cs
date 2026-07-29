@@ -1,10 +1,41 @@
 using ExpressPackingMonitoring.UI;
+using System.Drawing;
+using System.Drawing.Imaging;
 using Xunit;
 
 namespace ExpressPackingMonitoring.Tests;
 
 public sealed class PlaybackWindowTests
 {
+    [Fact]
+    public void PhotoThumbnailCache_IsBoundedAndSupportsCancellation()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"PackingProofThumbTests-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var cache = new PhotoThumbnailCache(10);
+            for (int i = 0; i < 18; i++)
+            {
+                string path = Path.Combine(directory, $"{i}.jpg");
+                using (var bitmap = new Bitmap(32, 24))
+                    bitmap.Save(path, ImageFormat.Jpeg);
+                Assert.NotNull(cache.Get(path, TestContext.Current.CancellationToken));
+            }
+            Assert.InRange(cache.Count, 1, 10);
+
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+            Assert.Throws<OperationCanceledException>(() => cache.Get(Path.Combine(directory, "0.jpg"), cancellation.Token));
+            cache.Clear();
+            Assert.Equal(0, cache.Count);
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); } catch { }
+        }
+    }
+
     [Theory]
     [InlineData(3, 3, false, true)]
     [InlineData(2, 3, false, false)]

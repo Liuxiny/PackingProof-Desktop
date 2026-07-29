@@ -6,6 +6,9 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -672,6 +675,10 @@ namespace ExpressPackingMonitoring.Services
                             HandleStartClip(ctx, path);
                         else if (method == "GET" && path.StartsWith("/api/videos/") && path.EndsWith("/thumbnail"))
                             HandleVideoThumbnail(ctx, path);
+                        else if (method == "GET" && path.StartsWith("/api/videos/") && path.EndsWith("/photo-thumbnail"))
+                            HandleRecordingPhoto(ctx, path, thumbnail: true);
+                        else if (method == "GET" && path.StartsWith("/api/videos/") && path.EndsWith("/photo"))
+                            HandleRecordingPhoto(ctx, path, thumbnail: false);
                         else if (path.StartsWith("/api/videos/") && path.EndsWith("/play"))
                             HandlePlay(ctx, path);
                         else
@@ -1826,8 +1833,13 @@ namespace ExpressPackingMonitoring.Services
                     deviceId: requestingDeviceId).Total;
             }
             // SQL 层只取当前页，文件存在性仅对当前页记录检查。
-            var paged = result.Records.Select(r => new
+            var paged = result.Records.Select(r =>
             {
+                string videoPath = VideoFileResolver.Resolve(r);
+                string photoPath = VideoFileResolver.ResolvePhoto(r);
+                bool hasPhoto = !string.IsNullOrWhiteSpace(photoPath) && File.Exists(photoPath);
+                return new
+                {
                 r.Id,
                 r.OrderId,
                 trackingNumber = r.TrackingNumber ?? "",
@@ -1850,10 +1862,17 @@ namespace ExpressPackingMonitoring.Services
                 startTime = r.StartTime.ToString("yyyy-MM-dd HH:mm:ss"),
                 durationSec = Math.Round(r.DurationSeconds, 0),
                 duration = TimeSpan.FromSeconds(r.DurationSeconds).ToString(@"mm\:ss"),
-                exists = File.Exists(r.FilePath),
+                exists = File.Exists(videoPath),
+                hasPhoto,
+                photoCapturedAt = r.PhotoCapturedAt?.ToString("yyyy-MM-dd HH:mm:ss.fff") ?? "",
+                photoWidth = r.PhotoWidth,
+                photoHeight = r.PhotoHeight,
+                photoUrl = hasPhoto ? $"/api/videos/{r.Id}/photo" : "",
+                photoThumbnailUrl = hasPhoto ? $"/api/videos/{r.Id}/photo-thumbnail" : "",
                 playUrl = $"/api/videos/{r.Id}/play?compat=0",
                 thumbnailUrl = $"/api/videos/{r.Id}/thumbnail",
                 remote = true
+                };
             });
 
             SendJson(ctx, 200, new { total = result.Total, deviceTotal, page, pageSize, data = paged });
@@ -2271,6 +2290,8 @@ namespace ExpressPackingMonitoring.Services
                 yield return file;
             foreach (var file in EnumerateCacheFiles(AppPaths.ClipPreviewDir, "*.jpg"))
                 yield return file;
+            foreach (var file in EnumerateCacheFiles(AppPaths.PhotoThumbnailDir, "*.jpg"))
+                yield return file;
             foreach (var file in EnumerateCacheFiles(AppPaths.ClipsDir, "*.mp4"))
                 yield return file;
         }
@@ -2520,6 +2541,85 @@ namespace ExpressPackingMonitoring.Services
             }
         }
 
+        private void HandleRecordingPhoto(HttpListenerContext ctx, string path, bool thumbnail)
+        {
+            string suffix = thumbnail ? "/photo-thumbnail" : "/photo";
+            if (!TryFindVideoId(path, suffix, out long id))
+            {
+                SendJson(ctx, 400, new { errorCode = "invalid_video_id", error = "录像 ID 无效" });
+                return;
+            }
+
+            VideoRecord record = _db.GetVideoById(id);
+            if (record == null || record.IsDeleted)
+            {
+                SendJson(ctx, 404, new { errorCode = "recording_not_found", error = "录像记录不存在" });
+                return;
+            }
+
+            string photoPath = VideoFileResolver.ResolvePhoto(record);
+            if (string.IsNullOrWhiteSpace(photoPath) || !File.Exists(photoPath))
+            {
+                SendJson(ctx, 404, new { errorCode = "photo_not_found", error = "录像照片不存在" });
+                return;
+            }
+
+            try
+            {
+                string responsePath = thumbnail ? GetOrCreatePhotoThumbnail(record, photoPath) : photoPath;
+                ServeFileWithRange(ctx, responsePath, inline: true);
+            }
+            catch (Exception ex)
+            {
+                Log($"HandleRecordingPhoto 异常: {ex.Message}");
+                SendJson(ctx, 500, new { errorCode = "photo_failed", error = "录像照片读取失败" });
+            }
+        }
+
+        private static string GetOrCreatePhotoThumbnail(VideoRecord record, string photoPath)
+        {
+            var sourceInfo = new FileInfo(photoPath);
+            string cacheName = $"{record.Id}_{sourceInfo.Length}_{sourceInfo.LastWriteTimeUtc.Ticks}.jpg";
+            string cachePath = Path.Combine(AppPaths.PhotoThumbnailDir, cacheName);
+            if (File.Exists(cachePath)) return cachePath;
+
+            Directory.CreateDirectory(AppPaths.PhotoThumbnailDir);
+            string temporaryPath = cachePath + $".{Guid.NewGuid():N}.writing";
+            try
+            {
+                using var source = Image.FromFile(photoPath);
+                const int maxWidth = 320;
+                const int maxHeight = 240;
+                double scale = Math.Min(1d, Math.Min(maxWidth / (double)source.Width, maxHeight / (double)source.Height));
+                int width = Math.Max(1, (int)Math.Round(source.Width * scale));
+                int height = Math.Max(1, (int)Math.Round(source.Height * scale));
+                using var target = new Bitmap(width, height, PixelFormat.Format24bppRgb);
+                using (Graphics graphics = Graphics.FromImage(target))
+                {
+                    graphics.Clear(Color.White);
+                    graphics.CompositingQuality = CompositingQuality.HighQuality;
+                    graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                    graphics.SmoothingMode = SmoothingMode.HighQuality;
+                    graphics.DrawImage(source, new Rectangle(0, 0, width, height));
+                }
+                target.Save(temporaryPath, ImageFormat.Jpeg);
+                try
+                {
+                    File.Move(temporaryPath, cachePath, overwrite: false);
+                }
+                catch (IOException) when (File.Exists(cachePath))
+                {
+                    File.Delete(temporaryPath);
+                }
+                return cachePath;
+            }
+            catch
+            {
+                if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+                throw;
+            }
+        }
+
         private static T ReadJsonBody<T>(HttpListenerContext ctx)
         {
             string body = ReadRequestBody(ctx, MaxJsonBodyBytes);
@@ -2606,7 +2706,14 @@ namespace ExpressPackingMonitoring.Services
             var fi = new FileInfo(filePath);
             long fileLength = fi.Length;
             string ext = fi.Extension.ToLowerInvariant();
-            string mime = ext switch { ".mp4" => "video/mp4", ".mkv" => "video/x-matroska", _ => "application/octet-stream" };
+            string mime = ext switch
+            {
+                ".mp4" => "video/mp4",
+                ".mkv" => "video/x-matroska",
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".png" => "image/png",
+                _ => "application/octet-stream"
+            };
 
             ctx.Response.ContentType = mime;
             if (!inline)

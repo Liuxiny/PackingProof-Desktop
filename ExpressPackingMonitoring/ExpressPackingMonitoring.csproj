@@ -129,6 +129,9 @@
     <Compile Include="Services\RecordingDeviceCatalog.cs" />
     <Compile Include="Services\RecordingPerformanceService.cs" />
     <Compile Include="Services\RecordingProfileVerifier.cs" />
+    <Compile Include="Services\RecordingActivityGate.cs" />
+    <Compile Include="Services\RecordingDeletionService.cs" />
+    <Compile Include="Services\RecordingSnapshotService.cs" />
     <Compile Include="Services\RecordingIntegrityService.cs" />
     <Compile Include="Services\TrayIconService.cs" />
     <Compile Include="Services\UserscriptGuideNavigation.cs" />

@@ -505,7 +505,7 @@
                TargetType="Grid"
                BasedOn="{StaticResource SettingRowStyle}">
             <Setter Property="Visibility"
-                    Value="{Binding IsChecked, ElementName=ShowAdvancedSettingsCheckBox, Converter={StaticResource BoolToVisibility}}"/>
+                    Value="{Binding Config.ShowAdvancedSettings, Converter={StaticResource BoolToVisibility}}"/>
         </Style>
 
         <Style x:Key="AdvancedSettingRowLastStyle"
@@ -770,8 +770,36 @@
                                 BorderThickness="1"
                                 CornerRadius="12"
                                 Padding="8">
-                            <TabPanel IsItemsHost="True"
-                                      KeyboardNavigation.TabIndex="1"/>
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TabPanel Grid.Row="0"
+                                          IsItemsHost="True"
+                                          KeyboardNavigation.TabIndex="1"/>
+                                <Border Grid.Row="1"
+                                        Margin="4,10,4,4"
+                                        Padding="10,12"
+                                        BorderBrush="{DynamicResource BorderLight}"
+                                        BorderThickness="0,1,0,0">
+                                    <StackPanel>
+                                        <TextBlock Text="显示高级设置"
+                                                   FontSize="12"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource TextPrimary}"/>
+                                        <TextBlock Text="显示专业参数"
+                                                   Margin="0,3,0,8"
+                                                   FontSize="11"
+                                                   Foreground="{DynamicResource TextMuted}"/>
+                                        <CheckBox x:Name="ShowAdvancedSettingsCheckBox"
+                                                  IsChecked="{Binding Config.ShowAdvancedSettings, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                  Unchecked="ShowAdvancedSettingsCheckBox_Unchecked"
+                                                  HorizontalAlignment="Left"
+                                                  Style="{StaticResource ToggleSwitchStyle}"/>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
                         </Border>
 
                         <ContentPresenter x:Name="PART_SelectedContentHost"
@@ -1206,7 +1234,7 @@
                                     </Grid>
 
                                     <Border Style="{StaticResource SectionDividerStyle}"
-                                            Visibility="{Binding IsChecked, ElementName=ShowAdvancedSettingsCheckBox, Converter={StaticResource BoolToVisibility}}"/>
+                                            Visibility="{Binding Config.ShowAdvancedSettings, Converter={StaticResource BoolToVisibility}}"/>
 
                                     <Grid Style="{StaticResource AdvancedSettingRowStyle}">
                                         <Grid.ColumnDefinitions>
@@ -1421,7 +1449,7 @@
                                     </Grid>
 
                                     <Border Style="{StaticResource SectionDividerStyle}"
-                                            Visibility="{Binding IsChecked, ElementName=ShowAdvancedSettingsCheckBox, Converter={StaticResource BoolToVisibility}}"/>
+                                            Visibility="{Binding Config.ShowAdvancedSettings, Converter={StaticResource BoolToVisibility}}"/>
 
                                     <Grid Style="{StaticResource SettingRowStyle}">
                                         <Grid.ColumnDefinitions>
@@ -1807,7 +1835,7 @@
                             </Border>
 
                             <Border Style="{StaticResource SectionCardStyle}"
-                                    Visibility="{Binding IsChecked, ElementName=ShowAdvancedSettingsCheckBox, Converter={StaticResource BoolToVisibility}}">
+                                    Visibility="{Binding Config.ShowAdvancedSettings, Converter={StaticResource BoolToVisibility}}">
                                 <StackPanel>
                                     <Grid Style="{StaticResource AdvancedSettingRowStyle}">
                                         <Grid.ColumnDefinitions>
@@ -1984,7 +2012,7 @@
                                 </StackPanel>
                             </Border>
 
-                            <Border Visibility="{Binding IsChecked, ElementName=ShowAdvancedSettingsCheckBox, Converter={StaticResource BoolToVisibility}}">
+                            <Border Visibility="{Binding Config.ShowAdvancedSettings, Converter={StaticResource BoolToVisibility}}">
                                 <Border.Style>
                                     <Style TargetType="Border" BasedOn="{StaticResource SectionCardStyle}">
                                         <Setter Property="IsEnabled" Value="False"/>
@@ -2130,7 +2158,7 @@
                                 </StackPanel>
                             </Border>
 
-                            <Border Visibility="{Binding IsChecked, ElementName=ShowAdvancedSettingsCheckBox, Converter={StaticResource BoolToVisibility}}">
+                            <Border Visibility="{Binding Config.ShowAdvancedSettings, Converter={StaticResource BoolToVisibility}}">
                                 <Border.Style>
                                     <Style TargetType="Border" BasedOn="{StaticResource SectionCardStyle}">
                                         <Setter Property="IsEnabled" Value="False"/>
@@ -2557,7 +2585,7 @@
 
                             <!-- 基础扫码设置 -->
                             <Border Style="{StaticResource SectionCardStyle}"
-                                    Visibility="{Binding IsChecked, ElementName=ShowAdvancedSettingsCheckBox, Converter={StaticResource BoolToVisibility}}">
+                                    Visibility="{Binding Config.ShowAdvancedSettings, Converter={StaticResource BoolToVisibility}}">
                                 <StackPanel>
 
                                     <Grid Style="{StaticResource AdvancedSettingRowStyle}"
@@ -2790,27 +2818,6 @@
                 <Border Background="Transparent" Padding="0,4,0,0">
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <StackPanel>
-                            <Border Style="{StaticResource SectionCardStyle}">
-                                <Grid Style="{StaticResource SettingRowLastStyle}">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="24"/>
-                                        <ColumnDefinition Width="260"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Margin="0,0,16,0">
-                                        <TextBlock Text="显示高级设置" Style="{StaticResource FieldLabelStyle}"/>
-                                        <TextBlock Text="显示编码、阈值、时序等专业参数"
-                                                   Style="{StaticResource FieldHintStyle}"/>
-                                    </StackPanel>
-                                    <CheckBox x:Name="ShowAdvancedSettingsCheckBox"
-                                              Grid.Column="2"
-                                              IsChecked="{Binding Config.ShowAdvancedSettings, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                              VerticalAlignment="Center"
-                                              HorizontalAlignment="Left"
-                                              Style="{StaticResource ToggleSwitchStyle}"/>
-                                </Grid>
-                            </Border>
-
                             <!-- 水印设置 -->
                             <Border Style="{StaticResource SectionCardStyle}"
                                     Visibility="{Binding Capabilities.CanRecordPcVideo, Converter={StaticResource BoolToVisibility}}">

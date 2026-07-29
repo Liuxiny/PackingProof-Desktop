@@ -877,6 +877,14 @@ namespace ExpressPackingMonitoring.UI
             }
         }
 
+        private void ShowAdvancedSettingsCheckBox_Unchecked(object sender, RoutedEventArgs e)
+        {
+            if (sender is not CheckBox toggle) return;
+            Dispatcher.BeginInvoke(
+                System.Windows.Threading.DispatcherPriority.Input,
+                new Action(() => Keyboard.Focus(toggle)));
+        }
+
         private async void BtnApply_Click(object sender, RoutedEventArgs e)
         {
             await SaveAndApplyAsync();

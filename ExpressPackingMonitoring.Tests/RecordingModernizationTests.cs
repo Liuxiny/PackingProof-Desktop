@@ -87,6 +87,35 @@ public sealed class RecordingModernizationTests
     }
 
     [Fact]
+    public async Task RecordingProofV2_BindsFinalMp4AndOriginalPhoto()
+    {
+        string directory = CreateTempDirectory();
+        try
+        {
+            string video = Path.Combine(directory, "proof-test.mp4");
+            string photo = Path.Combine(directory, "proof-test_面单.jpg");
+            CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+            await File.WriteAllBytesAsync(video, Enumerable.Range(0, 4096).Select(i => (byte)(i % 251)).ToArray(), cancellationToken);
+            await File.WriteAllBytesAsync(photo, Enumerable.Range(0, 1024).Select(i => (byte)(i % 239)).ToArray(), cancellationToken);
+            var metadata = new RecordingProofMetadata(
+                2, "ORDER456", "发货", DateTimeOffset.UtcNow.AddSeconds(-20), DateTimeOffset.UtcNow,
+                1920, 1080, 30, "h264_qsv", "");
+
+            RecordingProofResult proof = await new RecordingIntegrityService()
+                .CreateProofAsync(video, metadata, cancellationToken, photo);
+            Assert.NotEmpty(proof.PhotoSha256);
+            Assert.True(await RecordingIntegrityService.VerifyProofAsync(video, proof.ProofFilePath, cancellationToken, photo));
+
+            await File.AppendAllTextAsync(photo, "tampered", cancellationToken);
+            Assert.False(await RecordingIntegrityService.VerifyProofAsync(video, proof.ProofFilePath, cancellationToken, photo));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void WatermarkProofCode_ChangesEachSecond()
     {
         var session = new RecordingIntegritySession();

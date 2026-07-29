@@ -43,6 +43,19 @@ public sealed class SettingsAdvancedVisibilityTests
         }
     }
 
+    [Fact]
+    public void AdvancedSettingsToggle_LivesInFixedLeftNavigationArea()
+    {
+        XDocument document = LoadSettingsXaml();
+        XElement toggle = Assert.Single(
+            document.Descendants(Presentation + "CheckBox"),
+            element => (string?)element.Attribute(Xaml + "Name") == "ShowAdvancedSettingsCheckBox");
+
+        Assert.NotNull(toggle.Ancestors(Presentation + "ControlTemplate").SingleOrDefault());
+        Assert.Null(toggle.Ancestors(Presentation + "TabItem").SingleOrDefault());
+        Assert.Equal("Left", (string?)document.Descendants(Presentation + "TabControl").Single().Attribute("TabStripPlacement"));
+    }
+
     [Theory]
     [InlineData("分辨率")]
     [InlineData("放大倍数")]
@@ -68,7 +81,7 @@ public sealed class SettingsAdvancedVisibilityTests
             .Ancestors(Presentation + "Border")
             .Select(border => (string?)border.Attribute("Visibility"))
             .Any(visibility => visibility?.Contains(
-                "ShowAdvancedSettingsCheckBox",
+                "Config.ShowAdvancedSettings",
                 StringComparison.Ordinal) == true);
     }
 

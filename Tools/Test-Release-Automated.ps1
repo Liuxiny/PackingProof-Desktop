@@ -152,8 +152,15 @@ try {
     Invoke-Checked -FilePath "npm" -Arguments @("ci", "--ignore-scripts")
 
     Write-Host "[4/7] Creating an isolated video fixture..."
-    $ffmpeg = (Get-Command ffmpeg -ErrorAction SilentlyContinue)?.Source
-    if (-not $ffmpeg) { $ffmpeg = Join-Path $repoRoot "ffmpeg.exe" }
+    $ffmpeg = $env:EPM_FFMPEG_PATH
+    if ($ffmpeg -and (Test-Path -LiteralPath $ffmpeg -PathType Container)) {
+        $ffmpeg = Join-Path $ffmpeg "bin\ffmpeg.exe"
+    }
+    if (-not $ffmpeg -or -not (Test-Path -LiteralPath $ffmpeg -PathType Leaf)) {
+        $ffmpeg = (Get-Command ffmpeg -ErrorAction SilentlyContinue)?.Source
+    }
+    if (-not $ffmpeg) { $ffmpeg = Join-Path $repoRoot "ExpressPackingMonitoring\ffmpeg.exe" }
+    if (-not (Test-Path -LiteralPath $ffmpeg -PathType Leaf)) { $ffmpeg = Join-Path $repoRoot "ffmpeg.exe" }
     if (-not (Test-Path $ffmpeg)) { throw "ffmpeg is required for automated Web playback testing." }
     Invoke-Checked -FilePath $ffmpeg -Arguments @(
         "-hide_banner", "-loglevel", "error", "-y",

@@ -630,4 +630,10 @@
   <data name="本地录像缓冲目录" xml:space="preserve"><value>本地录像缓冲目录</value></data>
   <data name="使用网络路径时先在此完成录像，必须是本机固定磁盘" xml:space="preserve"><value>使用网络路径时先在此完成录像，必须是本机固定磁盘</value></data>
   <data name="选择" xml:space="preserve"><value>选择</value></data>
+  <data name="查看原始照片" xml:space="preserve"><value>查看原始照片</value></data>
+  <data name="无照片" xml:space="preserve"><value>无照片</value></data>
+  <data name="删" xml:space="preserve"><value>删</value></data>
+  <data name="显示专业参数" xml:space="preserve"><value>显示专业参数</value></data>
+  <data name="未能获取稳定的全分辨率照片，已阻止开录" xml:space="preserve"><value>未能获取稳定的全分辨率照片，已阻止开录</value></data>
+  <data name="音频管道初始化失败，已阻止开录" xml:space="preserve"><value>音频管道初始化失败，已阻止开录</value></data>
 </root>

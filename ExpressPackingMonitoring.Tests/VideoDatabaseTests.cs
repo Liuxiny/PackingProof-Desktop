@@ -448,6 +448,141 @@ public sealed class VideoDatabaseTests
         }
     }
 
+    [Fact]
+    public void RecordingEvidence_PersistsPhotoMetadataAndCountsPhotoStorage()
+    {
+        string tempDirectory = CreateTempDirectory();
+        try
+        {
+            string databasePath = Path.Combine(tempDirectory, "videos.db");
+            string videoPath = Path.Combine(tempDirectory, "recording.mkv");
+            string photoPath = Path.Combine(tempDirectory, "recording_面单.jpg");
+            File.WriteAllBytes(photoPath, new byte[321]);
+            DateTime capturedAt = new(2026, 7, 29, 10, 11, 12, 345);
+
+            using (var database = new VideoDatabase(databasePath))
+            {
+                long id = database.InsertVideoRecord(
+                    "TRACK-1", "发货", "h264", "libx264", videoPath, capturedAt,
+                    localPhotoPath: photoPath,
+                    photoCapturedAt: capturedAt,
+                    photoWidth: 3840,
+                    photoHeight: 2160,
+                    photoFileSizeBytes: 321,
+                    photoSha256: new string('a', 64),
+                    photoStatus: RecordingPhotoStatus.Ready);
+                database.UpdateVideoRecordOnStop(id, capturedAt.AddSeconds(60), 60, 1024, "手动");
+            }
+
+            using var reopened = new VideoDatabase(databasePath);
+            VideoRecord record = Assert.Single(reopened.QueryVideos(null, null, "TRACK-1"));
+            Assert.Equal(photoPath, record.LocalPhotoPath);
+            Assert.Equal(photoPath, record.ResolvedPhotoPath);
+            Assert.Equal(3840, record.PhotoWidth);
+            Assert.Equal(2160, record.PhotoHeight);
+            Assert.Equal(321, record.PhotoFileSizeBytes);
+            Assert.Equal(RecordingPhotoStatus.Ready, record.PhotoStatus);
+            Assert.Equal(1345, reopened.GetTotalFileSizeBytes());
+            Assert.Equal(1345, reopened.GetGlobalSizeAndDuration().TotalBytes);
+        }
+        finally
+        {
+            DeleteTempDirectory(tempDirectory);
+        }
+    }
+
+    [Fact]
+    public void PersistentJobs_RecoverAcrossRestartAndFinalizeNewestRecordingFirst()
+    {
+        string tempDirectory = CreateTempDirectory();
+        try
+        {
+            string databasePath = Path.Combine(tempDirectory, "videos.db");
+            long olderId;
+            long newerId;
+            using (var database = new VideoDatabase(databasePath))
+            {
+                DateTime older = new(2026, 7, 29, 9, 0, 0);
+                DateTime newer = older.AddMinutes(1);
+                olderId = database.InsertVideoRecord("OLD", "发货", "", "", Path.Combine(tempDirectory, "old.mkv"), older);
+                newerId = database.InsertVideoRecord("NEW", "发货", "", "", Path.Combine(tempDirectory, "new.mkv"), newer);
+                database.UpdateVideoRecordOnStop(olderId, older.AddSeconds(20), 20, 100, "连续换单");
+                database.UpdateVideoRecordOnStop(newerId, newer.AddSeconds(20), 20, 100, "手动");
+                database.EnqueueMediaFinalize(olderId, older.AddSeconds(20));
+                database.EnqueueMediaFinalize(newerId, newer.AddSeconds(20));
+                database.UpdateMediaFinalizeJob(newerId, MediaFinalizeJobState.Running, "Muxing", incrementAttempt: true);
+
+                database.UpsertRecordingDeleteJob(new RecordingDeleteJob
+                {
+                    RecordId = olderId,
+                    State = RecordingDeleteJobState.WaitingForNetwork,
+                    LocalVideoDeleted = true,
+                    RequestedAt = older.AddMinutes(2),
+                    LastError = "网络不可用"
+                });
+            }
+
+            using var reopened = new VideoDatabase(databasePath);
+            reopened.UpdateMediaFinalizeJob(newerId, MediaFinalizeJobState.Cancelled, "Queued", "录像活动抢占");
+            IReadOnlyList<MediaFinalizeJob> jobs = reopened.GetPendingMediaFinalizeJobs();
+            Assert.Equal(newerId, jobs[0].RecordId);
+            Assert.Equal(MediaFinalizeJobState.Cancelled, jobs[0].State);
+            Assert.Equal(1, jobs[0].AttemptCount);
+
+            RecordingDeleteJob deleteJob = Assert.Single(reopened.GetPendingRecordingDeleteJobs());
+            Assert.Equal(olderId, deleteJob.RecordId);
+            Assert.True(deleteJob.LocalVideoDeleted);
+            Assert.Equal(RecordingDeleteJobState.WaitingForNetwork, deleteJob.State);
+        }
+        finally
+        {
+            DeleteTempDirectory(tempDirectory);
+        }
+    }
+
+    [Fact]
+    public void LegacyDatabase_IsMigratedWithoutInventingPhotoEvidence()
+    {
+        string tempDirectory = CreateTempDirectory();
+        try
+        {
+            string databasePath = Path.Combine(tempDirectory, "videos.db");
+            using (var connection = new SqliteConnection($"Data Source={databasePath}"))
+            {
+                connection.Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = @"
+                    CREATE TABLE VideoRecords (
+                        Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        OrderId TEXT NOT NULL,
+                        Mode TEXT NOT NULL DEFAULT '',
+                        FilePath TEXT NOT NULL,
+                        FileSizeBytes INTEGER DEFAULT 0,
+                        StartTime TEXT NOT NULL,
+                        EndTime TEXT,
+                        DurationSeconds REAL DEFAULT 0,
+                        StopReason TEXT DEFAULT '',
+                        IsDeleted INTEGER DEFAULT 0,
+                        DeletedAt TEXT,
+                        DeleteReason TEXT DEFAULT ''
+                    );
+                    INSERT INTO VideoRecords (OrderId, FilePath, StartTime)
+                    VALUES ('LEGACY', 'legacy.mp4', '2026-07-29 08:00:00');";
+                command.ExecuteNonQuery();
+            }
+
+            using var database = new VideoDatabase(databasePath);
+            VideoRecord record = Assert.Single(database.QueryVideos(null, null, "LEGACY"));
+            Assert.Equal(RecordingPhotoStatus.Missing, record.PhotoStatus);
+            Assert.Empty(record.LocalPhotoPath);
+            Assert.Empty(record.NetworkPhotoPath);
+        }
+        finally
+        {
+            DeleteTempDirectory(tempDirectory);
+        }
+    }
+
     private static void AddCompleted(VideoDatabase database, string orderId, string mode, string path, DateTime startTime)
     {
         long id = database.InsertVideoRecord(orderId, mode, "", "", path, startTime);

@@ -364,6 +364,39 @@ public sealed class CameraBarcodeRecognitionTests
         Assert.True(guide.Height < 720);
     }
 
+    [Theory]
+    [InlineData(false, 2.0, 0, 0, 1280, 720)]
+    [InlineData(true, 2.0, 320, 180, 640, 360)]
+    [InlineData(true, 1.5, 213, 120, 853, 480)]
+    [InlineData(true, 0.2, 0, 0, 1280, 720)]
+    public void ZoomRoi_IsSharedByPreviewAndRecognition(
+        bool enabled,
+        double scale,
+        int x,
+        int y,
+        int width,
+        int height)
+    {
+        Assert.Equal(new Rect(x, y, width, height), CameraZoomRoi.Calculate(1280, 720, enabled, scale));
+    }
+
+    [Fact]
+    public void StabilityTracker_RequiresBarcodeGeometryToSettle()
+    {
+        var tracker = new CameraBarcodeStabilityTracker();
+        var first = new CameraBarcodeDetection("YT123456789012", 0.25, 0.5, 0.2, 0, 100, 120);
+        var moving = first with { CenterX = 0.7 };
+        var stable = moving with { CenterX = 0.69, Sharpness = 90 };
+
+        CameraBarcodeObservation initial = tracker.ObserveDetection(first, Start);
+        CameraBarcodeObservation rejected = tracker.ObserveDetection(moving, Start.AddMilliseconds(200));
+        CameraBarcodeObservation confirmed = tracker.ObserveDetection(stable, Start.AddMilliseconds(400));
+
+        Assert.Equal("YT123456789012", initial.CandidateCode);
+        Assert.Equal("条码位置仍在移动", rejected.FailureReason);
+        Assert.Equal("YT123456789012", confirmed.ConfirmedCode);
+    }
+
     [Fact]
     public void Decoder_FullFrameFallbackFindsBarcodeOutsideGuide()
     {

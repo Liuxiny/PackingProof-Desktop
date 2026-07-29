@@ -125,6 +125,33 @@
                     <ListView.ItemTemplate>
                         <DataTemplate>
                             <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="76"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Button Grid.Column="0" Width="68" Height="52" Padding="0" Margin="0,0,10,0"
+                                        Background="#22000000" BorderBrush="{DynamicResource BorderDefault}"
+                                        IsEnabled="{Binding HasPhoto}" ToolTip="查看原始照片"
+                                        Click="BtnShowPhoto_Click">
+                                    <Grid>
+                                        <Image Source="{Binding PhotoThumbnail}" Stretch="UniformToFill"/>
+                                        <TextBlock Text="无照片" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   FontSize="10" Foreground="{DynamicResource TextMuted}">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding HasPhoto}" Value="True">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </Grid>
+                                </Button>
+                                <Grid Grid.Column="1">
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
@@ -169,6 +196,12 @@
                                         </TextBlock.Style>
                                     </TextBlock>
                                 </Grid>
+                                <Button Grid.Column="2" Width="32" Height="32" Margin="8,0,0,0"
+                                        VerticalAlignment="Center" Content="删" ToolTip="{Binding DeleteDisabledReason}"
+                                        Foreground="White" Background="{DynamicResource AccentRed}"
+                                        BorderThickness="0" IsEnabled="{Binding CanDelete}"
+                                        Click="BtnDeleteVideo_Click"/>
+                            </Grid>
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
